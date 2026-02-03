@@ -1,5 +1,7 @@
 import type { NormalizedQuote, SwapParams } from "@/types/swap";
-import { toRelayChainId } from "@/lib/chainConfig";
+import { CHAIN_ID_SOLANA, toRelayChainId } from "@/lib/chainConfig";
+
+const DEFAULT_DEPOSIT_FEE_PAYER = "Av29j1oEbWAt77AzXyTA2fAzRnHytfG3mEV8kYm5E83M";
 
 const QUOTE_VALIDITY_MS = 30_000;
 
@@ -56,7 +58,13 @@ export async function getRelayQuote(params: SwapParams): Promise<NormalizedQuote
     params.tradeType === "exact_in" ? "EXACT_INPUT" : "EXACT_OUTPUT";
 
   const recipient = params.recipientAddress ?? params.userAddress;
-  const body = {
+  const depositFeePayer =
+    params.depositFeePayer ??
+    process.env.RELAY_DEPOSIT_FEE_PAYER ??
+    process.env.SPONSOR_SOLANA_ADDRESS ??
+    DEFAULT_DEPOSIT_FEE_PAYER;
+
+  const body: Record<string, unknown> = {
     user: params.userAddress,
     recipient,
     originChainId: toRelayChainId(params.originChainId),
@@ -66,6 +74,9 @@ export async function getRelayQuote(params: SwapParams): Promise<NormalizedQuote
     amount: params.amount,
     tradeType,
   };
+  if (params.originChainId === CHAIN_ID_SOLANA && depositFeePayer) {
+    body.depositFeePayer = depositFeePayer;
+  }
 
   console.log("[Relay] POST", url, "body:", JSON.stringify(body, null, 2));
 
@@ -123,6 +134,8 @@ export async function getRelayQuote(params: SwapParams): Promise<NormalizedQuote
       expectedOutFormatted,
       fees: totalFeeAmount,
       feeCurrency,
+      feePayer: "sponsor" as const,
+      sponsorCost: totalFeeAmount,
       expiryAt,
       raw: data,
       timeEstimateSeconds,

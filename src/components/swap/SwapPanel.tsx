@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { VersionedTransaction } from "@solana/web3.js";
 import {
   CHAIN_ID_SOLANA,
   DESTINATION_CHAIN_IDS,
@@ -17,7 +18,8 @@ import { useQuotes } from "@/hooks/useQuotes";
 const ORIGIN_CHAIN_ID = CHAIN_ID_SOLANA;
 
 export function SwapPanel() {
-  const { publicKey } = useWallet();
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction } = useWallet();
   const [originToken, setOriginToken] = useState("");
   const [amount, setAmount] = useState("");
   const [destinationChainId, setDestinationChainId] = useState(8453);
@@ -46,6 +48,7 @@ export function SwapPanel() {
   );
   const [executing, setExecuting] = useState(false);
   const [executeError, setExecuteError] = useState<string | null>(null);
+  const [executeSuccess, setExecuteSuccess] = useState<string | null>(null);
 
   const originTokens = useMemo(
     () => TOKENS_BY_CHAIN[ORIGIN_CHAIN_ID] ?? [],
@@ -119,7 +122,8 @@ export function SwapPanel() {
             destinationToken,
             userAddress: publicKey.toBase58(),
             recipientAddress,
-            tradeType: "exact_in",
+            tradeType: "exact_in" as const,
+            depositFeePayer: publicKey.toBase58(),
           }
         : null,
     [
@@ -160,9 +164,10 @@ export function SwapPanel() {
     selectedQuote != null && !executing && !isExpired;
 
   const handleExecute = useCallback(async () => {
-    if (!selectedQuote || !canExecute) return;
+    if (!selectedQuote || !canExecute || !sendTransaction || !connection) return;
     setExecuting(true);
     setExecuteError(null);
+    setExecuteSuccess(null);
     try {
       const raw = selectedQuote.raw as Record<string, unknown>;
       if (selectedQuote.provider === "debridge" && raw?.tx) {
@@ -185,11 +190,28 @@ export function SwapPanel() {
           console.log("deBridge raw tx (EVM):", raw.tx);
         }
       } else if (selectedQuote.provider === "relay" && raw?.steps) {
-        const steps = raw.steps as Array<{ items?: Array<{ data?: unknown }> }>;
-        const firstItem = steps[0]?.items?.[0];
-        if (firstItem?.data) {
-          setExecuteError("Relay execution: use steps[].items[].data with your wallet. Raw logged to console.");
-          console.log("Relay first step data:", firstItem.data);
+        const steps = raw.steps as Array<{ kind?: string; items?: Array<{ data?: Record<string, unknown> }> }>;
+        const firstStep = steps[0];
+        const firstItem = firstStep?.items?.[0];
+        const data = firstItem?.data;
+        if (data && (data.serializedTransaction ?? data.transaction)) {
+          const base64 =
+            (data.serializedTransaction as string) ?? (data.transaction as string);
+          try {
+            const bin = atob(base64);
+            const buf = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+            const tx = VersionedTransaction.deserialize(buf);
+            const sig = await sendTransaction(tx, connection, { skipPreflight: false });
+            console.log("Relay Solana tx sent:", sig);
+            setExecuteSuccess(`Sent. View: https://explorer.solana.com/tx/${sig}`);
+          } catch (err) {
+            console.error("Relay Solana send failed:", err);
+            setExecuteError(err instanceof Error ? err.message : "Failed to send Solana transaction");
+          }
+        } else {
+          setExecuteError("Relay execution: no Solana transaction in step. Raw logged to console.");
+          console.log("Relay first step data:", firstItem?.data);
         }
       } else {
         setExecuteError("Execution not implemented for this provider/chain. Check console for raw payload.");
@@ -200,7 +222,7 @@ export function SwapPanel() {
     } finally {
       setExecuting(false);
     }
-  }, [selectedQuote, canExecute]);
+  }, [selectedQuote, canExecute, connection, sendTransaction]);
 
   useEffect(() => {
     if (best && !selectedQuote) setSelectedQuote(best);
@@ -376,8 +398,24 @@ export function SwapPanel() {
                 </p>
               ) : (
                 <div style={{ fontSize: "0.875rem", marginBottom: "0.5rem" }}>
-                  <p>Expected out: {best.expectedOutFormatted} (provider: {best.provider})</p>
-                  <p>Fees: {formatRawAmount(best.fees, best.feeCurrency)} {best.feeCurrency}</p>
+                  {(() => {
+                    const q = selectedQuote ?? best;
+                    if (!q) return null;
+                    const solanaNetworkLine =
+                      q.solanaCostToUser && q.solanaCostToUser !== "0"
+                        ? ` + ~${formatRawAmount(q.solanaCostToUser, "SOL")} SOL (network)`
+                        : "";
+                    return (
+                      <>
+                        <p>You receive: {q.expectedOutFormatted} {q.feeCurrency} (provider: {q.provider})</p>
+                        <p>
+                          {q.feePayer === "sponsor"
+                            ? `Fees: ${formatRawAmount(q.fees, q.feeCurrency)} ${q.feeCurrency} (sponsored)`
+                            : `You pay: ${formatRawAmount(q.fees, q.feeCurrency)} ${q.feeCurrency}${solanaNetworkLine}`}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -430,6 +468,11 @@ export function SwapPanel() {
                   {executing ? "Executing…" : "Execute"}
                 </button>
               </div>
+              {executeSuccess && (
+                <p style={{ fontSize: "0.875rem", color: "var(--success, green)", marginTop: "0.5rem" }}>
+                  {executeSuccess}
+                </p>
+              )}
               {executeError && (
                 <p style={{ fontSize: "0.875rem", color: "var(--destructive)", marginTop: "0.5rem" }}>
                   {executeError}

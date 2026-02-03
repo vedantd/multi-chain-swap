@@ -12,6 +12,9 @@ export const RELAY_CHAIN_ID_SOLANA = 792703809;
 /** Internal chain ID for Solana (matches deBridge; Relay gets mapped via toRelayChainId) */
 export const CHAIN_ID_SOLANA_INTERNAL = DEBRIDGE_CHAIN_ID_SOLANA;
 
+/** Estimated lamports user pays for a Solana origin tx (e.g. deBridge). ~0.015 SOL. */
+export const ESTIMATED_SOLANA_TX_LAMPORTS = "15000000";
+
 /** Common chain IDs (EVM convention; Solana = deBridge ID for consistency) */
 export const CHAIN_ID_ETHEREUM = 1;
 export const CHAIN_ID_OPTIMISM = 10;

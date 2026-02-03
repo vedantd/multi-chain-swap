@@ -40,6 +40,10 @@ export async function POST(request: Request) {
       userAddress: params.userAddress,
       recipientAddress: params.recipientAddress ?? params.userAddress,
       tradeType: params.tradeType ?? "exact_in",
+      depositFeePayer:
+        typeof params.depositFeePayer === "string" && params.depositFeePayer
+          ? params.depositFeePayer
+          : undefined,
     };
 
     console.log("[API /quotes] Request body:", JSON.stringify(swapParams, null, 2));

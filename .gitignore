@@ -50,3 +50,7 @@ next-env.d.ts
 # Markdown docs (project README is committed)
 *.md
 !README.md
+
+# Quote accounting logs
+logs/quotes-accounting.jsonl
+data/quotes-accounting.jsonl

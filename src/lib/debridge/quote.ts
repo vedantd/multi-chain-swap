@@ -1,5 +1,5 @@
 import type { NormalizedQuote, SwapParams } from "@/types/swap";
-import { toDebridgeChainId } from "@/lib/chainConfig";
+import { CHAIN_ID_SOLANA, ESTIMATED_SOLANA_TX_LAMPORTS, isEvmChain, toDebridgeChainId } from "@/lib/chainConfig";
 
 const QUOTE_VALIDITY_MS = 30_000;
 
@@ -46,12 +46,24 @@ export async function getDebridgeQuote(
     "dstChainTokenOutAmount",
     params.tradeType === "exact_out" ? params.amount : "auto"
   );
-  if (params.recipientAddress ?? params.userAddress) {
-    searchParams.set(
-      "dstChainTokenOutRecipient",
-      params.recipientAddress ?? params.userAddress
-    );
+  
+  // Determine the correct destination address format based on chain type
+  // For EVM destinations, use recipientAddress (EVM format); for Solana, use userAddress
+  const isDestinationEvm = isEvmChain(params.destinationChainId);
+  let dstAddress: string;
+  if (isDestinationEvm) {
+    if (!params.recipientAddress) {
+      throw new Error("recipientAddress (EVM address) required for EVM destinations");
+    }
+    dstAddress = params.recipientAddress;
+  } else {
+    dstAddress = params.userAddress; // Solana destination uses Solana address
   }
+  
+  if (dstAddress) {
+    searchParams.set("dstChainTokenOutRecipient", dstAddress);
+  }
+  
   searchParams.set("senderAddress", params.userAddress);
   searchParams.set(
     "srcChainOrderAuthorityAddress",
@@ -59,7 +71,7 @@ export async function getDebridgeQuote(
   );
   searchParams.set(
     "dstChainOrderAuthorityAddress",
-    params.recipientAddress ?? params.userAddress
+    dstAddress
   );
 
   const url = `${path}?${searchParams.toString()}`;
@@ -101,18 +113,33 @@ export async function getDebridgeQuote(
     console.log("[deBridge] Success, orderId:", data.orderId ?? "n/a", "estimation:", !!data.estimation);
     const expiryAt = Date.now() + QUOTE_VALIDITY_MS;
 
-    const estimation = data.estimation;
+    const estimation = data.estimation as {
+      dstChainTokenOut?: { amount?: string; approximateUsdValue?: number };
+      takeAmount?: string;
+      takeAmountFormatted?: string;
+      [key: string]: unknown;
+    } | undefined;
     const order = data.order;
+    
+    // Expected output is in estimation.dstChainTokenOut.amount (not takeAmount)
+    const dstTokenOut = estimation?.dstChainTokenOut;
     const expectedOut =
-      estimation?.takeAmount != null
-        ? String(estimation.takeAmount)
-        : order?.takeOffer?.amount != null
-          ? String(order.takeOffer.amount)
-          : "0";
-    const rawFormatted = (estimation as { takeAmountFormatted?: string | number } | undefined)
-      ?.takeAmountFormatted;
-    const expectedOutFormatted =
-      rawFormatted != null ? String(rawFormatted) : expectedOut;
+      dstTokenOut?.amount != null
+        ? String(dstTokenOut.amount)
+        : estimation?.takeAmount != null
+          ? String(estimation.takeAmount)
+          : order?.takeOffer?.amount != null
+            ? String(order.takeOffer.amount)
+            : "0";
+    
+    // Use approximateUsdValue for formatted display
+    const rawFormatted =
+      dstTokenOut?.approximateUsdValue != null
+        ? String(dstTokenOut.approximateUsdValue)
+        : estimation?.takeAmountFormatted != null
+          ? String(estimation.takeAmountFormatted)
+          : expectedOut;
+    const expectedOutFormatted = rawFormatted;
 
     const fixFee = data.fixFee != null ? String(data.fixFee) : "0";
     const protocolFee = data.protocolFee != null ? String(data.protocolFee) : "0";
@@ -124,6 +151,10 @@ export async function getDebridgeQuote(
       expectedOutFormatted,
       fees: totalFees,
       feeCurrency: "USDC",
+      feePayer: "user" as const,
+      sponsorCost: "0",
+      solanaCostToUser:
+        params.originChainId === CHAIN_ID_SOLANA ? ESTIMATED_SOLANA_TX_LAMPORTS : undefined,
       expiryAt,
       raw: data,
     };

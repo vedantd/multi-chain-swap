@@ -14,9 +14,13 @@ export interface SwapParams {
   userAddress: string;
   recipientAddress?: string;
   tradeType: TradeType;
+  /** When set and origin is Solana, Relay uses this as the fee-paying address (e.g. connected wallet for demo). */
+  depositFeePayer?: string;
 }
 
 export type SwapProvider = "relay" | "debridge";
+
+export type FeePayer = "sponsor" | "user";
 
 export interface NormalizedQuote {
   provider: SwapProvider;
@@ -24,6 +28,12 @@ export interface NormalizedQuote {
   expectedOutFormatted: string;
   fees: string;
   feeCurrency: string;
+  /** Who pays the bridge/protocol fee. Engine treats Relay as backend-sponsored (user pays 0). */
+  feePayer: FeePayer;
+  /** Raw amount the sponsor pays (same currency as feeCurrency). deBridge is "0". */
+  sponsorCost: string;
+  /** When origin is Solana and user pays (e.g. deBridge), estimated lamports for origin tx. */
+  solanaCostToUser?: string;
   expiryAt: number;
   raw: unknown;
   timeEstimateSeconds?: number;
