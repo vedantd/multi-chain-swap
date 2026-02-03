@@ -4,6 +4,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletLifecycle } from "@/hooks/useWalletLifecycle";
 import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
 import { WalletErrorBanner } from "@/components/wallet/WalletErrorBanner";
+import { SwapPanel } from "@/components/swap/SwapPanel";
 
 export function HomePageClient() {
   useWalletLifecycle();
@@ -52,20 +53,23 @@ export function HomePageClient() {
           </p>
         )}
         <p style={{ color: "var(--foreground)", marginBottom: "1rem" }}>
-          Connect your Solana wallet to get started. Check the browser console
-          for connect, disconnect, and account-change logs.
+          Connect your Solana wallet to get started.
         </p>
         {connected && publicKey && !connecting && (
-          <p
-            style={{
-              fontSize: "0.875rem",
-              color: "var(--foreground)",
-              opacity: 0.8,
-            }}
-          >
-            Wallet: {publicKey.toBase58().slice(0, 4)}...
-            {publicKey.toBase58().slice(-4)} — ready for transactions
-          </p>
+          <>
+            <p
+              style={{
+                fontSize: "0.875rem",
+                color: "var(--foreground)",
+                opacity: 0.8,
+                marginBottom: "0.5rem",
+              }}
+            >
+              Wallet: {publicKey.toBase58().slice(0, 4)}...
+              {publicKey.toBase58().slice(-4)} — ready for transactions
+            </p>
+            <SwapPanel />
+          </>
         )}
       </main>
     </div>
