@@ -290,7 +290,22 @@ export function computeSwapParams(
     userAddress: publicKey,
     recipientAddress,
     tradeType: "exact_in" as const,
-    depositFeePayer: publicKey,
+    // NOTE: Fee Sponsorship Requirements
+    // Relay fee sponsorship (covering destination chain fees) requires Enterprise Partnership.
+    // Enterprise Partnership includes: Fee Sponsorship, Sponsored Execution, Fast Fill,
+    // Custom SLAs, Priority Support, Increased Rate Limits, Revenue Share.
+    //
+    // Until Enterprise Partnership is obtained:
+    // - Users pay their own Solana transaction fees (depositFeePayer set to user address)
+    // - No `subsidizeFees` or `subsidizeRent` parameters can be used
+    //
+    // Once Enterprise Partnership is obtained:
+    // - Set `depositFeePayer` to sponsor address or remove to use DEFAULT_DEPOSIT_FEE_PAYER
+    // - Add `subsidizeFees: true` and optionally `subsidizeRent: true` to quote requests
+    // - Add `x-api-key` header with Enterprise API key
+    //
+    // See: https://docs.relay.link/features/fee-sponsorship
+    depositFeePayer: publicKey, // User pays fees until Enterprise Partnership obtained
   };
 }
 

@@ -87,4 +87,60 @@ describe("calculateWorstCaseCosts", () => {
     const costs = await calculateWorstCaseCosts(params, expectedOutUsd, solPriceUsd, connection, sponsor);
     expect(costs.rentUsd).toBe(0);
   });
+
+  describe("price drift calculations", () => {
+    it("calculates drift as 2% of expectedOutUsd", async () => {
+      const params = baseParams();
+      const connection = {} as Connection;
+      const costs = await calculateWorstCaseCosts(params, expectedOutUsd, solPriceUsd, connection, params.userAddress);
+      const expectedDrift = expectedOutUsd * 0.02; // 2%
+      expect(costs.driftBufferUsd).toBe(expectedDrift);
+    });
+
+    it("sets drift to 0 when expectedOutUsd is 0", async () => {
+      const params = baseParams();
+      const connection = {} as Connection;
+      const costs = await calculateWorstCaseCosts(params, 0, solPriceUsd, connection, params.userAddress);
+      expect(costs.driftBufferUsd).toBe(0);
+    });
+
+    it("includes drift in worst-case costs calculation", async () => {
+      const params = baseParams();
+      const connection = {} as Connection;
+      const costs = await calculateWorstCaseCosts(params, expectedOutUsd, solPriceUsd, connection, params.userAddress);
+      
+      // Verify drift is included and is 2% of expectedOutUsd
+      expect(costs.driftBufferUsd).toBe(expectedOutUsd * 0.02);
+      
+      // Verify drift is finite and non-negative
+      expect(Number.isFinite(costs.driftBufferUsd)).toBe(true);
+      expect(costs.driftBufferUsd).toBeGreaterThanOrEqual(0);
+    });
+
+    it("handles very large expectedOutUsd values", async () => {
+      const params = baseParams();
+      const connection = {} as Connection;
+      const largeExpectedOutUsd = 1_000_000; // $1M
+      const costs = await calculateWorstCaseCosts(params, largeExpectedOutUsd, solPriceUsd, connection, params.userAddress);
+      const expectedDrift = largeExpectedOutUsd * 0.02; // $20k
+      expect(costs.driftBufferUsd).toBe(expectedDrift);
+      expect(Number.isFinite(costs.driftBufferUsd)).toBe(true);
+    });
+
+    it("throws error for invalid drift calculation (NaN)", async () => {
+      const params = baseParams();
+      const connection = {} as Connection;
+      await expect(
+        calculateWorstCaseCosts(params, NaN, solPriceUsd, connection, params.userAddress)
+      ).rejects.toThrow("Invalid expectedOutUsd");
+    });
+
+    it("throws error for negative expectedOutUsd", async () => {
+      const params = baseParams();
+      const connection = {} as Connection;
+      await expect(
+        calculateWorstCaseCosts(params, -100, solPriceUsd, connection, params.userAddress)
+      ).rejects.toThrow("Invalid expectedOutUsd");
+    });
+  });
 });

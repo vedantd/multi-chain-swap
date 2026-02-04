@@ -1,4 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+import { isDustAmount, isUncloseableAccount, calculateDustThreshold } from "./dustDetection";
 
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
@@ -61,5 +62,59 @@ export async function getAtaExists(
     return accountInfo !== null && accountInfo.data !== undefined && accountInfo.data.length > 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Check if a balance would result in dust or an uncloseable account after a swap.
+ * 
+ * @param connection - Solana connection
+ * @param address - User's wallet address
+ * @param mint - Token mint address, or "SOL" for native SOL
+ * @param currentBalance - Current balance in raw units
+ * @param swapAmount - Amount being swapped out in raw units
+ * @returns Object indicating if swap would create dust or uncloseable account
+ */
+export async function checkDustAndUncloseable(
+  connection: Connection,
+  address: string,
+  mint: string,
+  currentBalance: string,
+  swapAmount: string
+): Promise<{ isDust: boolean; isUncloseable: boolean; dustAmount: string; remainingBalance: string }> {
+  try {
+    const currentBalanceBigInt = BigInt(currentBalance);
+    const swapAmountBigInt = BigInt(swapAmount);
+    
+    if (currentBalanceBigInt < swapAmountBigInt) {
+      // Not enough balance to swap
+      return {
+        isDust: false,
+        isUncloseable: false,
+        dustAmount: "0",
+        remainingBalance: currentBalance,
+      };
+    }
+    
+    const remainingBalance = currentBalanceBigInt - swapAmountBigInt;
+    const dustThreshold = await calculateDustThreshold(mint, connection);
+    
+    const isDust = remainingBalance < dustThreshold;
+    const isUncloseable = remainingBalance === dustThreshold;
+    
+    return {
+      isDust,
+      isUncloseable,
+      dustAmount: isDust ? String(remainingBalance) : "0",
+      remainingBalance: String(remainingBalance),
+    };
+  } catch {
+    // On error, assume no dust (conservative approach)
+    return {
+      isDust: false,
+      isUncloseable: false,
+      dustAmount: "0",
+      remainingBalance: "0",
+    };
   }
 }

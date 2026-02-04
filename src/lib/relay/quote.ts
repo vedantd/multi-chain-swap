@@ -74,6 +74,14 @@ export async function calculateWorstCaseCosts(
   connection?: Connection,
   depositFeePayer?: string
 ): Promise<WorstCaseCosts> {
+  // Validate inputs
+  if (!Number.isFinite(solPriceUsd) || solPriceUsd <= 0) {
+    throw new Error(`Invalid solPriceUsd: ${solPriceUsd}`);
+  }
+  if (!Number.isFinite(expectedOutUsd) || expectedOutUsd < 0) {
+    throw new Error(`Invalid expectedOutUsd: ${expectedOutUsd}`);
+  }
+
   const gasLamports = BigInt(ESTIMATED_SOLANA_TX_LAMPORTS);
   const gasUsd = (Number(gasLamports) / 1e9) * solPriceUsd;
 
@@ -96,26 +104,60 @@ export async function calculateWorstCaseCosts(
 
   // Token-2022 transfer fees
   let tokenLossUsd = 0;
-  if (connection && params.originChainId === CHAIN_ID_SOLANA) {
+  if (connection && params.originChainId === CHAIN_ID_SOLANA && expectedOutUsd > 0) {
     try {
       const tokenInfo = await detectToken2022(connection, params.originToken);
-      if (tokenInfo.hasTransferFees && tokenInfo.transferFeeBps) {
+      if (tokenInfo.hasTransferFees && tokenInfo.transferFeeBps != null && tokenInfo.transferFeeBps > 0 && tokenInfo.transferFeeBps < 10000) {
         // Calculate transfer fee in USD
-        const inputAmountUsd = expectedOutUsd / (1 - tokenInfo.transferFeeBps / 10000);
-        tokenLossUsd = inputAmountUsd * (tokenInfo.transferFeeBps / 10000);
+        const feeBps = tokenInfo.transferFeeBps;
+        const inputAmountUsd = expectedOutUsd / (1 - feeBps / 10000);
+        tokenLossUsd = inputAmountUsd * (feeBps / 10000);
+        // Ensure tokenLossUsd is finite and non-negative
+        if (!Number.isFinite(tokenLossUsd) || tokenLossUsd < 0) {
+          tokenLossUsd = 0;
+        }
       }
     } catch {
       // Ignore errors in token detection
+      tokenLossUsd = 0;
     }
   }
 
   // Quote drift buffer: 2% of swap value (hard-coded as per requirements)
-  const driftBufferUsd = expectedOutUsd * PRICE_DRIFT_PERCENTAGE;
+  // Price drift accounts for quote volatility between quote time and execution time.
+  // The 2% buffer protects against adverse price movements that could reduce the
+  // actual swap value below the quoted amount.
+  //
+  // Only apply drift buffer if expectedOutUsd > 0 to avoid invalid calculations.
+  // This drift buffer is included in worstCaseSponsorCostUsd, which then has
+  // a 20% margin applied in selectUserFee() to ensure sponsor profitability.
+  const driftBufferUsd = expectedOutUsd > 0 
+    ? expectedOutUsd * PRICE_DRIFT_PERCENTAGE 
+    : 0;
+  
+  // Ensure driftBufferUsd is finite and non-negative
+  if (!Number.isFinite(driftBufferUsd) || driftBufferUsd < 0) {
+    throw new Error(`Invalid driftBufferUsd calculated: ${driftBufferUsd} from expectedOutUsd: ${expectedOutUsd}`);
+  }
 
   // Failure buffer: 2x gas (retry scenario)
   const failureBufferUsd = gasUsd * 2;
 
-  return { gasUsd, rentUsd, tokenLossUsd, driftBufferUsd, failureBufferUsd };
+  // Validate all outputs are finite and non-negative
+  const result = {
+    gasUsd,
+    rentUsd,
+    tokenLossUsd,
+    driftBufferUsd,
+    failureBufferUsd,
+  };
+
+  // Validate all values are finite
+  if (!Object.values(result).every(v => Number.isFinite(v) && v >= 0)) {
+    throw new Error(`Invalid worst-case costs calculated: ${JSON.stringify(result)}`);
+  }
+
+  return result;
 }
 
 interface FeeSelection {
@@ -139,6 +181,10 @@ async function selectUserFee(
   connection?: Connection,
   balanceOverrides?: BalanceOverrides
 ): Promise<FeeSelection> {
+  // Apply 20% margin to worst-case costs to ensure sponsor profitability.
+  // Note: worstCaseCostUsd already includes driftBufferUsd (2% price drift),
+  // so the margin is applied AFTER drift is accounted for.
+  // This ensures: userFeeUsd = (gas + rent + tokenLoss + drift + failure) * 1.20
   const marginBps = 2000; // 20%
   const feeUsdRequired = worstCaseCostUsd * (1 + marginBps / 10000);
 
@@ -218,6 +264,23 @@ export async function getRelayQuote(
     params.tradeType === "exact_in" ? "EXACT_INPUT" : "EXACT_OUTPUT";
 
   const recipient = params.recipientAddress ?? params.userAddress;
+  
+  // NOTE: Fee Sponsorship and depositFeePayer
+  // Relay fee sponsorship (covering destination chain fees via `subsidizeFees` and `subsidizeRent`)
+  // requires Enterprise Partnership. The `depositFeePayer` parameter for Solana origin transactions
+  // can use any Solana address (doesn't require Enterprise Partnership), but that address must
+  // have sufficient SOL to cover transaction fees and rent.
+  //
+  // When `depositFeePayer` is set to user address:
+  // - User pays their own Solana transaction fees
+  // - No Enterprise Partnership required
+  //
+  // When `depositFeePayer` is set to sponsor address:
+  // - Sponsor pays Solana transaction fees (from that wallet's SOL balance)
+  // - Still requires Enterprise Partnership for `subsidizeFees`/`subsidizeRent` (destination fees)
+  //
+  // Fallback order: params.depositFeePayer → env vars → DEFAULT_DEPOSIT_FEE_PAYER
+  // See: https://docs.relay.link/features/fee-sponsorship
   const depositFeePayer =
     params.depositFeePayer ??
     process.env.RELAY_DEPOSIT_FEE_PAYER ??
@@ -315,8 +378,33 @@ export async function getRelayQuote(
     if (params.originChainId === CHAIN_ID_SOLANA && depositFeePayer) {
       gasless = true;
       solPriceUsd = await getSolPriceInUsdc();
+      
+      // Validate solPriceUsd
+      if (!Number.isFinite(solPriceUsd) || solPriceUsd <= 0) {
+        console.error("[Relay] Invalid solPriceUsd:", solPriceUsd);
+        solPriceUsd = 150; // Fallback to reasonable default
+      }
+      
       const tokenPrice = await getTokenPriceUsd(params.destinationToken, params.destinationChainId);
-      userReceivesUsd = (Number(expectedOut) / 10 ** destinationDecimals) * tokenPrice;
+      
+      // Validate tokenPrice
+      if (!Number.isFinite(tokenPrice) || tokenPrice <= 0) {
+        console.error("[Relay] Invalid tokenPrice:", tokenPrice, "for token:", params.destinationToken);
+        // Use fallback of 1.0 (getTokenPriceUsd already handles this, but double-check)
+      }
+      
+      const expectedOutNum = Number(expectedOut);
+      if (!Number.isFinite(expectedOutNum) || expectedOutNum < 0) {
+        throw new Error(`Invalid expectedOut: ${expectedOut}`);
+      }
+      
+      userReceivesUsd = (expectedOutNum / 10 ** destinationDecimals) * tokenPrice;
+      
+      // Validate userReceivesUsd
+      if (!Number.isFinite(userReceivesUsd) || userReceivesUsd < 0) {
+        console.error("[Relay] Invalid userReceivesUsd calculated:", userReceivesUsd, "from expectedOut:", expectedOut, "tokenPrice:", tokenPrice);
+        userReceivesUsd = 0; // Set to 0 to prevent invalid calculations
+      }
 
       const worstCaseCosts = await calculateWorstCaseCosts(
         params,
@@ -325,6 +413,9 @@ export async function getRelayQuote(
         connection,
         depositFeePayer
       );
+      // Calculate total worst-case sponsor costs in USD.
+      // Includes: gas, rent, token-2022 transfer fees, price drift buffer (2%), and failure buffer.
+      // This total is then passed to selectUserFee() which applies a 20% margin.
       worstCaseSponsorCostUsd =
         worstCaseCosts.gasUsd +
         worstCaseCosts.rentUsd +
@@ -379,6 +470,11 @@ export async function getRelayQuote(
       userReceivesUsd,
       userPaysUsd,
       solPriceUsd: solPriceUsd > 0 ? solPriceUsd : undefined,
+      // Include price drift in quote metadata only when:
+      // 1. Origin is Solana (where we calculate worst-case costs)
+      // 2. depositFeePayer is set (indicating sponsorship scenario)
+      // Price drift is always included in worst-case cost calculations when expectedOutUsd > 0,
+      // but only exposed in quote metadata for Solana origin + sponsor scenarios.
       priceDrift: params.originChainId === CHAIN_ID_SOLANA && depositFeePayer ? PRICE_DRIFT_PERCENTAGE : undefined,
       expiryAt,
       raw: data,

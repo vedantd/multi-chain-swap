@@ -14,7 +14,21 @@ export interface SwapParams {
   userAddress: string;
   recipientAddress?: string;
   tradeType: TradeType;
-  /** When set and origin is Solana, Relay uses this as the fee-paying address (e.g. connected wallet for demo). */
+  /**
+   * When set and origin is Solana, Relay uses this as the fee-paying address for deposit transactions.
+   *
+   * NOTE: Fee Sponsorship Requirements
+   * Relay fee sponsorship (covering destination chain fees via `subsidizeFees` and `subsidizeRent`)
+   * requires Enterprise Partnership. Until Enterprise Partnership is obtained, users must pay their
+   * own Solana transaction fees, so this is typically set to the user's address.
+   *
+   * Once Enterprise Partnership is obtained:
+   * - Can be set to sponsor address or omitted to use DEFAULT_DEPOSIT_FEE_PAYER
+   * - Can use `subsidizeFees: true` and `subsidizeRent: true` in quote requests
+   * - Requires `x-api-key` header with Enterprise API key
+   *
+   * See: https://docs.relay.link/features/fee-sponsorship
+   */
   depositFeePayer?: string;
 }
 
