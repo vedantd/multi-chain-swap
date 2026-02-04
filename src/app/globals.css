@@ -143,3 +143,18 @@ input[type="number"] {
   animation: slideDown 0.2s ease;
 }
 
+/* Nika landing: white "Connect Wallet" CTA */
+.landing-cta-wrap .wallet-adapter-button {
+  padding: 0.75rem 1.75rem !important;
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  color: #0b0e17 !important;
+  background: #ffffff !important;
+  border: 1px solid #0b0e17 !important;
+  border-radius: 12px !important;
+}
+.landing-cta-wrap .wallet-adapter-button:hover {
+  background: #e4e4e7 !important;
+  color: #0b0e17 !important;
+}
+
