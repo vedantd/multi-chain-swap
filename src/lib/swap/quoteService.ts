@@ -39,6 +39,46 @@ export class NeedSolForGasError extends Error {
 }
 
 /**
+ * Safely convert a value to BigInt, handling both string and number inputs.
+ * Numbers in scientific notation are converted to fixed-point strings first.
+ */
+function safeBigInt(value: string | number | undefined): bigint | null {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    // Remove any whitespace
+    const cleaned = value.trim();
+    if (!cleaned) return null;
+    // Check if it's in scientific notation (contains 'e' or 'E')
+    if (/[eE]/.test(cleaned)) {
+      // Parse scientific notation to a regular number, then convert to string
+      const num = Number(cleaned);
+      if (!Number.isFinite(num)) return null;
+      // Convert to string without scientific notation using toFixed
+      // For very large numbers, we need to handle them carefully
+      if (num >= Number.MAX_SAFE_INTEGER || num <= Number.MIN_SAFE_INTEGER) {
+        // For numbers beyond safe integer range, we can't reliably convert
+        // This shouldn't happen for lamports, but handle gracefully
+        console.warn("[quoteService] Value exceeds safe integer range:", cleaned);
+        return null;
+      }
+      return BigInt(Math.floor(num).toString());
+    }
+    return BigInt(cleaned);
+  }
+  if (typeof value === "number") {
+    // Check if number is within safe integer range
+    if (!Number.isFinite(value)) return null;
+    if (value >= Number.MAX_SAFE_INTEGER || value <= Number.MIN_SAFE_INTEGER) {
+      console.warn("[quoteService] Number exceeds safe integer range:", value);
+      return null;
+    }
+    // Convert to integer string (lamports should always be integers)
+    return BigInt(Math.floor(value).toString());
+  }
+  return null;
+}
+
+/**
  * How we decide if the user's SOL balance is enough:
  *
  * - deBridge (Solana origin): need at least quote.solanaCostToUser + 10% buffer (gas for origin tx).
@@ -48,10 +88,12 @@ export class NeedSolForGasError extends Error {
  */
 export function minSolRequiredForQuote(quote: NormalizedQuote): bigint | null {
   if (quote.provider === "debridge" && quote.solanaCostToUser) {
-    return (BigInt(quote.solanaCostToUser) * BigInt(110)) / BigInt(100);
+    const cost = safeBigInt(quote.solanaCostToUser);
+    if (cost == null) return null;
+    return (cost * BigInt(110)) / BigInt(100);
   }
   if (quote.provider === "relay" && quote.requiresSOL && quote.userFee) {
-    return BigInt(quote.userFee);
+    return safeBigInt(quote.userFee);
   }
   return null;
 }
@@ -292,10 +334,10 @@ export function costToUserRaw(q: NormalizedQuote): bigint {
   if (q.feePayer === "sponsor") {
     // Relay: user fee in SOL is paid on Solana, not from destination output
     if (q.userFeeCurrency === "SOL") return BigInt(0);
-    return q.userFee ? BigInt(q.userFee) : BigInt(0);
+    return q.userFee ? safeBigInt(q.userFee) ?? BigInt(0) : BigInt(0);
   }
   // deBridge: user pays bridge fees (same currency as destination output)
-  return BigInt(q.fees);
+  return safeBigInt(q.fees) ?? BigInt(0);
 }
 
 /** Effective receive on destination chain = expectedOut - costToUser (in output units). */

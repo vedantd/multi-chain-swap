@@ -91,10 +91,15 @@ export async function getDebridgeQuote(
   }
   
   searchParams.set("senderAddress", params.userAddress);
+  // Ensure the user can always cancel and reclaim funds by default.
+  searchParams.set("srcAllowedCancelBeneficiary", params.userAddress);
   searchParams.set(
     "dstChainOrderAuthorityAddress",
     dstAddress
   );
+
+  // Make operating expenses explicit and transparent, as recommended by deBridge.
+  searchParams.set("prependOperatingExpenses", "true");
 
   const url = `${path}?${searchParams.toString()}`;
   console.log("[deBridge] GET url (copy for curl):", url);
