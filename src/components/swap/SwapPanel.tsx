@@ -472,6 +472,35 @@ const styles = stylex.create({
   itemizedValueBold: {
     fontWeight: 600,
   },
+  poweredByRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '0.5rem',
+    marginTop: '0.5rem',
+    paddingTop: '0.375rem',
+    borderTop: '1px solid var(--border)',
+    fontSize: '0.8125rem',
+  },
+  poweredByLabel: {
+    color: 'var(--muted-foreground, #666)',
+  },
+  poweredByLogoWrap: {
+    width: '1.5rem',
+    height: '1.5rem',
+    borderRadius: '50%',
+    overflow: 'hidden',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'var(--background)',
+  },
+  poweredByLogo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
   itemizedMarginTop: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -1976,6 +2005,18 @@ export function SwapPanel() {
                           <span {...stylex.props(styles.itemizedValue)}>{(q.priceDrift * 100).toFixed(1)}%</span>
                         </div>
                       )}
+                      <div {...stylex.props(styles.poweredByRow)}>
+                        <span {...stylex.props(styles.poweredByLabel)}>Powered by</span>
+                        <div {...stylex.props(styles.poweredByLogoWrap)}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={q.provider === "debridge" ? "/debridge.png" : "/relay.png"}
+                            alt=""
+                            aria-hidden
+                            {...stylex.props(styles.poweredByLogo)}
+                          />
+                        </div>
+                      </div>
                     </div>
                     {/* Show expired message when quote expires */}
                     {!executing && isQuoteExpired && (
