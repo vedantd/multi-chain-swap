@@ -71,10 +71,11 @@ const styles = stylex.create({
   },
   chainBadge: {
     position: 'absolute',
-    top: '0.25rem',
+    top: '50%',
     right: '1.5rem',
     width: '1rem',
     height: '1rem',
+    marginTop: '-0.5rem',
     borderRadius: '50%',
     objectFit: 'cover',
     flexShrink: 0,

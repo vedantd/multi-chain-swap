@@ -18,12 +18,20 @@ const styles = stylex.create({
     margin: "0 auto",
   },
   header: {
+    width: "100%",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "1.5rem",
+    padding: "1rem 1.5rem",
     paddingBottom: "1rem",
     borderBottom: "1px solid var(--border)",
+    marginBottom: "0",
+  },
+  headerTitle: {
+    flexShrink: 0,
+  },
+  headerWallet: {
+    marginLeft: "auto",
   },
   // Landing (Nika-style) when wallet not connected
   landingWrap: {
@@ -157,11 +165,14 @@ export function HomePageClient() {
           </div>
         </div>
       ) : (
-        <div {...stylex.props(styles.pageContainer)}>
+        <>
           <header {...stylex.props(styles.header)}>
-            <h1 {...stylex.props(typography.h1)}>Cross-chain swaps</h1>
-            <WalletConnectButton />
+            <h1 {...stylex.props(typography.h1, styles.headerTitle)}>Cross-chain swaps</h1>
+            <div {...stylex.props(styles.headerWallet)}>
+              <WalletConnectButton />
+            </div>
           </header>
+          <div {...stylex.props(styles.pageContainer)}>
           <main>
             <WalletErrorBanner />
             {mounted && (
@@ -203,7 +214,8 @@ export function HomePageClient() {
               </>
             )}
           </main>
-        </div>
+          </div>
+        </>
       )}
     </>
   );

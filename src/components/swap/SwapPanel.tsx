@@ -194,8 +194,8 @@ const styles = stylex.create({
   },
   tokenSelectContainer: {
     flexShrink: 0,
-    minWidth: '220px',
-    width: '220px',
+    minWidth: '170px',
+    width: '170px',
     minHeight: '2.5rem',
     display: 'flex',
     alignItems: 'center',
@@ -313,8 +313,8 @@ const styles = stylex.create({
   },
   destinationSelectorContainer: {
     flexShrink: 0,
-    minWidth: '220px',
-    width: '220px',
+    minWidth: '170px',
+    width: '170px',
     minHeight: '2.5rem',
     display: 'flex',
     alignItems: 'center',

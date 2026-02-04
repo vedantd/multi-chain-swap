@@ -398,8 +398,8 @@ export function DestinationSelector({
               alt={selectedToken.label}
             />
           )}
-          <span {...stylex.props(styles.triggerText)}>
-            {activeChain ? activeChain.label : "Select network"}{" "}
+          <span {...stylex.props(styles.triggerText)} title={activeChain && selectedToken ? `${activeChain.label} – ${selectedToken.label}` : undefined}>
+            {activeChain ? getChainIcon(destinationChainId) : "Select net"}
             {selectedToken ? ` – ${selectedToken.label}` : ""}
           </span>
         </div>
