@@ -1,8 +1,29 @@
+/**
+ * SwapPanel Component
+ * 
+ * Main UI component for the multi-chain swap interface. Handles:
+ * - Token and chain selection (Solana origin, multiple EVM/Solana destinations)
+ * - Quote fetching and display (Relay and deBridge providers)
+ * - Balance checking and insufficient funds validation
+ * - Transaction execution (Solana for Relay, EVM for deBridge)
+ * - Price fetching for USD value display
+ * - Quote staleness detection and refresh prompts
+ * 
+ * This component orchestrates the entire swap flow from user input to transaction execution.
+ */
+
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+// External dependencies
+import * as stylex from '@stylexjs/stylex';
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction } from "@solana/web3.js";
+
+// Internal types
+import type { DropdownOption, NormalizedQuote, SwapParams, TokenOption } from "@/types/swap";
+
+// Internal utilities/lib functions
 import {
   CHAIN_ID_SOLANA,
   DESTINATION_CHAIN_IDS,
@@ -12,74 +33,585 @@ import {
   isEvmChain,
   TOKENS_BY_CHAIN,
 } from "@/lib/chainConfig";
-import type { NormalizedQuote, SwapParams } from "@/types/swap";
+import {
+  QUOTE_DEBOUNCE_MS,
+  QUOTE_STALE_MS,
+  QUOTE_VALIDITY_MS,
+  USDC_MINT_SOLANA,
+} from "@/lib/constants";
+import { getDebridgeQuote } from "@/lib/debridge/quote";
+import { getSolPriceInUsdc, getTokenPriceUsd } from "@/lib/pricing";
+import {
+  effectiveReceiveRaw,
+  hasEnoughSolForQuote,
+  minSolRequiredForQuote,
+  validateSponsorProfitability,
+} from "@/lib/swap/quoteService";
+import { getSolBalance, getTokenBalance } from "@/lib/solana/balance";
+
+// Internal components
+import { SelectDropdown } from "@/components/swap/SelectDropdown";
+import { TokenSelect } from "@/components/swap/TokenSelect";
+
+// Internal hooks
 import { useQuotes } from "@/hooks/useQuotes";
+import { useSupportedTokens } from "@/hooks/useSupportedTokens";
+
+// Store
+import {
+  useSwapStore,
+  computeSwapParams,
+  computeRecipientAddress,
+  computeEvmAddressValid,
+} from "@/stores/swapStore";
+
+// Styles
+import { container, typography, buttons, form, quote, badge, layout } from '@/styles/shared.stylex';
 
 const ORIGIN_CHAIN_ID = CHAIN_ID_SOLANA;
 
+const styles = stylex.create({
+  panelContainer: {
+    marginTop: '1.5rem',
+  },
+  section: {
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '1.5rem',
+    background: 'var(--background)',
+    marginBottom: '1rem',
+  },
+  heading: {
+    fontSize: '1.125rem',
+    fontWeight: 600,
+    marginBottom: '0.5rem',
+  },
+  description: {
+    fontSize: '0.8125rem',
+    color: 'var(--muted-foreground)',
+    marginBottom: '1.25rem',
+  },
+  inputSection: {
+    padding: '1rem',
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)',
+    background: 'var(--input-bg, #0f172a)',
+    marginBottom: '0.5rem',
+  },
+  inputHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: '0.5rem',
+  },
+  inputLabel: {
+    fontSize: '0.75rem',
+    color: 'var(--muted-foreground)',
+    fontWeight: 500,
+  },
+  chainBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.2rem 0.5rem',
+    borderRadius: '6px',
+    background: 'var(--muted)',
+    color: 'var(--muted-foreground)',
+  },
+  solanaIcon: {
+    display: 'block',
+  },
+  inputRow: {
+    display: 'flex',
+    gap: '0.75rem',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+  },
+  inputGroup: {
+    flex: '1 1 120px',
+    minWidth: '100px',
+  },
+  inputGroupWide: {
+    flex: '1 1 140px',
+    minWidth: '120px',
+  },
+  amountInput: {
+    width: '100%',
+    padding: '0.625rem 0.75rem',
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)',
+    background: 'var(--input-bg, #0f172a)',
+    color: 'var(--foreground)',
+    fontSize: '1rem',
+    boxSizing: 'border-box',
+  },
+  rawAmountHint: {
+    fontSize: '0.7rem',
+    color: 'var(--muted-foreground)',
+    marginTop: '0.35rem',
+  },
+  arrowContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    margin: '0.25rem 0',
+  },
+  arrowIcon: {
+    width: '1.5rem',
+    height: '1.5rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    border: '1px solid var(--border)',
+    background: 'var(--muted)',
+    color: 'var(--muted-foreground)',
+    fontSize: '0.75rem',
+  },
+  toSection: {
+    padding: '1rem',
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)',
+    background: 'var(--input-bg, #0f172a)',
+    marginBottom: '0.75rem',
+  },
+  toLabel: {
+    fontSize: '0.75rem',
+    color: 'var(--muted-foreground)',
+    fontWeight: 500,
+  },
+  toInputRow: {
+    display: 'flex',
+    gap: '0.75rem',
+    alignItems: 'flex-start',
+    marginTop: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  errorText: {
+    fontSize: '0.75rem',
+    color: 'var(--destructive)',
+    marginBottom: '0.25rem',
+  },
+  invalidRouteText: {
+    fontSize: '0.75rem',
+    color: 'var(--muted-foreground, #666)',
+    marginBottom: '0.5rem',
+  },
+  quoteSection: {
+    marginTop: '1.5rem',
+    paddingTop: '1.25rem',
+    borderTop: '1px solid var(--border)',
+  },
+  loadingText: {
+    fontSize: '0.875rem',
+    color: 'var(--muted-foreground, #666)',
+  },
+  errorSection: {
+    fontSize: '0.875rem',
+  },
+  errorMessage: {
+    color: 'var(--destructive)',
+    marginBottom: '0.5rem',
+  },
+  errorMessageNoMargin: {
+    color: 'var(--destructive)',
+    marginBottom: 0,
+  },
+  errorHint: {
+    color: 'var(--muted-foreground, #666)',
+    marginTop: 0,
+  },
+  noRoutesText: {
+    fontSize: '0.875rem',
+    color: 'var(--muted-foreground, #666)',
+  },
+  timeoutMessage: {
+    fontSize: '0.875rem',
+    color: 'var(--muted-foreground, #666)',
+    marginBottom: '0.75rem',
+  },
+  quoteDetails: {
+    marginBottom: '1rem',
+  },
+  itemizedSection: {
+    fontSize: '0.875rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+  },
+  itemizedRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+  },
+  itemizedLabel: {
+    color: 'var(--muted-foreground, #666)',
+  },
+  itemizedValue: {
+    color: 'var(--foreground)',
+  },
+  itemizedValueRed: {
+    color: 'var(--destructive, #ef4444)',
+  },
+  itemizedValueBold: {
+    fontWeight: 600,
+  },
+  itemizedMarginTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    marginTop: '0.25rem',
+  },
+  otherOptions: {
+    fontSize: '0.75rem',
+    color: 'var(--muted-foreground, #666)',
+    marginTop: '0.35rem',
+  },
+  otherOptionButton: {
+    marginRight: '0.5rem',
+  },
+  actionRow: {
+    display: 'flex',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  insufficientSolText: {
+    fontSize: '0.8rem',
+    color: 'var(--destructive, #b91c1c)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  insufficientFundsButton: {
+    padding: '0.5rem 1rem',
+    borderRadius: '6px',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+    cursor: 'not-allowed',
+    opacity: 0.6,
+    width: '100%',
+    textAlign: 'center',
+  },
+  refreshButton: {
+    textDecoration: 'underline',
+    background: 'none',
+    border: 'none',
+    color: 'inherit',
+    cursor: 'pointer',
+    padding: 0,
+    fontSize: 'inherit',
+  },
+  confirmButton: {
+    padding: '0.5rem 1rem',
+    borderRadius: '6px',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    opacity: 1,
+  },
+  confirmButtonDisabled: {
+    cursor: 'not-allowed',
+    opacity: 0.6,
+  },
+  successMessage: {
+    fontSize: '0.875rem',
+    color: 'var(--success, green)',
+    marginTop: '0.5rem',
+  },
+  executeErrorMessage: {
+    fontSize: '0.875rem',
+    color: 'var(--destructive)',
+    marginTop: '0.5rem',
+  },
+  gettingQuoteText: {
+    fontSize: '0.875rem',
+    color: 'var(--muted-foreground, #666)',
+  },
+});
+
 export function SwapPanel() {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
-  const [originToken, setOriginToken] = useState("");
-  const [amount, setAmount] = useState("");
-  const [destinationChainId, setDestinationChainId] = useState(8453);
-  const [destinationToken, setDestinationToken] = useState("");
-  const [destinationAddressOverride, setDestinationAddressOverride] = useState("");
-  const [evmAddressFetching, setEvmAddressFetching] = useState(false);
-  const fetchEvmAddress = useCallback(() => {
+  const { publicKey, sendTransaction, wallet } = useWallet();
+
+  // Zustand store state and actions
+  const originToken = useSwapStore((state) => state.originToken);
+  const amount = useSwapStore((state) => state.amount);
+  const destinationChainId = useSwapStore((state) => state.destinationChainId);
+  const destinationToken = useSwapStore((state) => state.destinationToken);
+  const destinationAddressOverride = useSwapStore((state) => state.destinationAddressOverride);
+  const evmAddressFetching = useSwapStore((state) => state.evmAddressFetching);
+  const evmAddressError = useSwapStore((state) => state.evmAddressError);
+  const evmDefaultWalletHintDismissed = useSwapStore((state) => state.evmDefaultWalletHintDismissed);
+  const userSOLBalance = useSwapStore((state) => state.userSOLBalance);
+  const userSourceTokenBalance = useSwapStore((state) => state.userSourceTokenBalance);
+  const params = useSwapStore((state) => state.params);
+  const selectedQuote = useSwapStore((state) => state.selectedQuote);
+  const executing = useSwapStore((state) => state.executing);
+  const executeError = useSwapStore((state) => state.executeError);
+  const executeSuccess = useSwapStore((state) => state.executeSuccess);
+  const paramsLastChangedAt = useSwapStore((state) => state.paramsLastChangedAt);
+  const prices = useSwapStore((state) => state.prices);
+  const now = useSwapStore((state) => state.now);
+
+  // Store actions
+  const setOriginToken = useSwapStore((state) => state.setOriginToken);
+  const setAmount = useSwapStore((state) => state.setAmount);
+  const setDestinationChainId = useSwapStore((state) => state.setDestinationChainId);
+  const setDestinationToken = useSwapStore((state) => state.setDestinationToken);
+  const setDestinationAddressOverride = useSwapStore((state) => state.setDestinationAddressOverride);
+  const setEvmAddressFetching = useSwapStore((state) => state.setEvmAddressFetching);
+  const setEvmAddressError = useSwapStore((state) => state.setEvmAddressError);
+  const setEvmDefaultWalletHintDismissed = useSwapStore((state) => state.setEvmDefaultWalletHintDismissed);
+  const setUserSOLBalance = useSwapStore((state) => state.setUserSOLBalance);
+  const setUserSourceTokenBalance = useSwapStore((state) => state.setUserSourceTokenBalance);
+  const setParams = useSwapStore((state) => state.setParams);
+  const setSelectedQuote = useSwapStore((state) => state.setSelectedQuote);
+  const setExecuting = useSwapStore((state) => state.setExecuting);
+  const setExecuteError = useSwapStore((state) => state.setExecuteError);
+  const setExecuteSuccess = useSwapStore((state) => state.setExecuteSuccess);
+  const setParamsLastChangedAt = useSwapStore((state) => state.setParamsLastChangedAt);
+  const setPrices = useSwapStore((state) => state.setPrices);
+  const updateNow = useSwapStore((state) => state.updateNow);
+  const clearBalances = useSwapStore((state) => state.clearBalances);
+  const clearQuoteState = useSwapStore((state) => state.clearQuoteState);
+  const clearExecutionState = useSwapStore((state) => state.clearExecutionState);
+
+  const fetchingRef = useRef(false);
+  /** After clearing destination due to wallet change, skip the "fetch when empty" effect so only the wallet-change refetch runs (with correct wallet). */
+  const walletChangeClearedAtRef = useRef<number | null>(null);
+  
+  const fetchEvmAddress = useCallback(async () => {
     if (typeof window === "undefined") return;
-    const ethereum = (window as unknown as { ethereum?: { request: (args: { method: string }) => Promise<unknown[]> } }).ethereum;
-    if (!ethereum?.request) return;
+
+    if (fetchingRef.current) {
+      console.log("[EVM] fetchEvmAddress skipped: already fetching");
+      return;
+    }
+    fetchingRef.current = true;
     setEvmAddressFetching(true);
-    ethereum
-      .request({ method: "eth_requestAccounts" })
-      .then((accounts: unknown) => {
-        const first = Array.isArray(accounts) ? accounts[0] : null;
-        if (typeof first === "string" && first.startsWith("0x") && first.length === 42) {
-          setDestinationAddressOverride(first);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setEvmAddressFetching(false));
-  }, []);
-  const [params, setParams] = useState<SwapParams | null>(null);
-  const [selectedQuote, setSelectedQuote] = useState<NormalizedQuote | null>(
-    null
-  );
-  const [executing, setExecuting] = useState(false);
-  const [executeError, setExecuteError] = useState<string | null>(null);
-  const [executeSuccess, setExecuteSuccess] = useState<string | null>(null);
+    setEvmAddressError(null);
+
+    const rawWalletName = wallet?.adapter?.name ?? "(none)";
+    const connectedWalletName = (wallet?.adapter?.name ?? "").toLowerCase();
+    const win = window as unknown as {
+      ethereum?: {
+        request: (args: { method: string }) => Promise<unknown>;
+        isMetaMask?: boolean;
+        isPhantom?: boolean;
+        providers?: Array<{ request: (args: { method: string }) => Promise<unknown>; isMetaMask?: boolean; isPhantom?: boolean }>;
+      };
+      phantom?: { ethereum?: { request: (args: { method: string }) => Promise<unknown>; isPhantom?: boolean } };
+    };
+    const hasPhantomEthereum = !!win.phantom?.ethereum;
+    const hasStandardEthereum = !!win.ethereum;
+    const standardIsPhantom = !!(win.ethereum as { isPhantom?: boolean } | undefined)?.isPhantom;
+    const standardIsMetaMask = !!(win.ethereum as { isMetaMask?: boolean } | undefined)?.isMetaMask;
+    const providersArray = (win.ethereum as { providers?: unknown[] } | undefined)?.providers;
+    const hasProvidersArray = Array.isArray(providersArray) && providersArray.length > 0;
+    const metamaskFromProviders = hasProvidersArray
+      ? (providersArray as Array<{ isMetaMask?: boolean; request?: (args: { method: string }) => Promise<unknown> }>).find((p) => p?.isMetaMask && !(p as { isPhantom?: boolean }).isPhantom)
+      : undefined;
+    const phantomFromProviders = hasProvidersArray
+      ? (providersArray as Array<{ isPhantom?: boolean; request?: (args: { method: string }) => Promise<unknown> }>).find((p) => (p as { isPhantom?: boolean }).isPhantom)
+      : undefined;
+
+    console.log("[EVM] fetchEvmAddress started", {
+      connectedSolanaWallet: rawWalletName,
+      connectedWalletNameLower: connectedWalletName || "(empty)",
+      hasPhantomEthereum,
+      hasStandardEthereum,
+      windowEthereumIsPhantom: standardIsPhantom,
+      windowEthereumIsMetaMask: standardIsMetaMask,
+      sameProvider: win.phantom?.ethereum === win.ethereum,
+      hasProvidersArray,
+      providersCount: hasProvidersArray ? providersArray.length : 0,
+      foundMetaMaskInProviders: !!metamaskFromProviders,
+      foundPhantomInProviders: !!phantomFromProviders,
+    });
+
+    // Use only the provider that matches the connected Solana wallet.
+    // When both Phantom and MetaMask are installed, window.ethereum is often overwritten (e.g. by Phantom).
+    // Use window.phantom.ethereum for Phantom; for MetaMask try window.ethereum.providers (EIP-5740) or window.ethereum.
+    type EthereumProvider = { request: (args: { method: string }) => Promise<unknown> };
+    let ethereum: EthereumProvider | undefined;
+    let providerSource: string;
+
+    if (connectedWalletName.includes("phantom") && hasPhantomEthereum) {
+      ethereum = win.phantom!.ethereum!;
+      providerSource = "phantom.ethereum (Solana wallet is Phantom)";
+    } else if (connectedWalletName.includes("metamask") && (hasStandardEthereum || metamaskFromProviders)) {
+      if (standardIsPhantom && metamaskFromProviders?.request) {
+        ethereum = metamaskFromProviders as EthereumProvider;
+        providerSource = "window.ethereum.providers[MetaMask] (window.ethereum was Phantom)";
+        console.log("[EVM] using MetaMask from window.ethereum.providers");
+      } else if (!standardIsPhantom && hasStandardEthereum) {
+        ethereum = win.ethereum!;
+        providerSource = "window.ethereum (Solana wallet is MetaMask)";
+      } else if (metamaskFromProviders?.request) {
+        ethereum = metamaskFromProviders as EthereumProvider;
+        providerSource = "window.ethereum.providers[MetaMask]";
+      } else {
+        ethereum = win.ethereum!;
+        providerSource = "window.ethereum (fallback; may be Phantom if overwritten)";
+        if (standardIsPhantom) console.warn("[EVM] Solana is MetaMask but window.ethereum is Phantom and no providers[]; will get Phantom address");
+      }
+    } else if (hasStandardEthereum) {
+      ethereum = win.ethereum!;
+      providerSource = `window.ethereum (fallback; connectedWalletName="${connectedWalletName}")`;
+    } else if (hasPhantomEthereum) {
+      ethereum = win.phantom!.ethereum!;
+      providerSource = "phantom.ethereum (fallback)";
+    } else {
+      providerSource = "(none)";
+    }
+
+    console.log("[EVM] provider selected", { providerSource, willCallRequest: !!ethereum?.request });
+
+    const timeoutId = setTimeout(() => {
+      console.warn("[EVM] fetchEvmAddress timed out");
+      setEvmAddressError("Request timed out. Please try again or enter address manually.");
+      fetchingRef.current = false;
+      setEvmAddressFetching(false);
+    }, 10000);
+
+    try {
+      if (!ethereum?.request) {
+        clearTimeout(timeoutId);
+        console.error("[EVM] no provider request method");
+        setEvmAddressError("No Ethereum provider found. Install MetaMask or enable EVM in Phantom.");
+        fetchingRef.current = false;
+        setEvmAddressFetching(false);
+        return;
+      }
+
+      console.log("[EVM] calling eth_requestAccounts on", providerSource);
+      const requested = await Promise.race([
+        ethereum.request({ method: "eth_requestAccounts" }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("eth_requestAccounts timeout")), 10000)
+        ),
+      ]);
+      clearTimeout(timeoutId);
+      const finalAccounts: string[] = Array.isArray(requested)
+        ? requested.filter((a): a is string => typeof a === "string")
+        : [];
+      const first = finalAccounts[0];
+
+      const phantomSameAsWindow = win.phantom?.ethereum === win.ethereum;
+      console.log("[EVM] eth_requestAccounts result", {
+        providerSource,
+        accountCount: finalAccounts.length,
+        firstAccount: first ?? "(none)",
+        allAccounts: finalAccounts,
+        phantomEthereumSameObjectAsWindowEthereum: phantomSameAsWindow,
+        note: phantomSameAsWindow
+          ? "phantom.ethereum and window.ethereum are the same object — both return the same address"
+          : "phantom.ethereum and window.ethereum are different objects",
+      });
+
+      if (typeof first === "string" && first.startsWith("0x") && first.length === 42) {
+        setDestinationAddressOverride(first);
+        setEvmAddressError(null);
+        console.log("[EVM] set destination address", first);
+      } else if (finalAccounts.length === 0) {
+        setEvmAddressError("No accounts found. Connect your EVM wallet or enter address manually.");
+        console.log("[EVM] no accounts returned");
+      } else {
+        setEvmAddressError("Invalid address from wallet.");
+        console.warn("[EVM] invalid first account", first);
+      }
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      const msg = err instanceof Error ? err.message : "Failed to fetch EVM address";
+      console.error("[EVM] fetchEvmAddress error", { error: msg, providerSource });
+      if (!/reject|denied|User rejected/i.test(msg)) {
+        setEvmAddressError(`Failed to connect: ${msg}`);
+      }
+    } finally {
+      fetchingRef.current = false;
+      setEvmAddressFetching(false);
+    }
+  }, [wallet?.adapter?.name, setEvmAddressFetching, setEvmAddressError, setDestinationAddressOverride]);
+
+  const { tokens: originTokensFetched } = useSupportedTokens(ORIGIN_CHAIN_ID);
+  const { tokens: destinationTokensFetched } = useSupportedTokens(destinationChainId, {
+    enabled: !!originToken,
+  });
+
+  const originFallback = TOKENS_BY_CHAIN[ORIGIN_CHAIN_ID] ?? [];
+  const destinationFallback = TOKENS_BY_CHAIN[destinationChainId] ?? [];
 
   const originTokens = useMemo(
-    () => TOKENS_BY_CHAIN[ORIGIN_CHAIN_ID] ?? [],
-    []
+    () =>
+      originTokensFetched.length > 0 ? originTokensFetched : originFallback,
+    [originTokensFetched, originFallback]
   );
   const destinationTokens = useMemo(
-    () => TOKENS_BY_CHAIN[destinationChainId] ?? [],
-    [destinationChainId]
+    () =>
+      destinationTokensFetched.length > 0
+        ? destinationTokensFetched
+        : destinationFallback,
+    [destinationTokensFetched, destinationFallback]
   );
+
+  const canonicalAddress = (addr: string) =>
+    addr.startsWith("0x") ? addr.toLowerCase() : addr;
 
   useEffect(() => {
     if (originTokens.length === 0) return;
-    const validAddresses = new Set(originTokens.map((t) => t.address));
-    if (!originToken || !validAddresses.has(originToken)) {
-      setOriginToken(originTokens[0].address);
+    const validAddresses = new Set(originTokens.map((t) => canonicalAddress(t.address)));
+    if (!originToken || !validAddresses.has(canonicalAddress(originToken))) {
+      const usdc = originTokens.find((t) => t.symbol === "USDC");
+      const sol = originTokens.find((t) => t.symbol === "SOL");
+      setOriginToken((usdc ?? sol ?? originTokens[0])?.address ?? "");
     }
   }, [originTokens, originToken]);
 
+  // When destination chain changes, default to USDC on that chain (so user only changes amount or chain).
+  useEffect(() => {
+    const usdcFromConfig = TOKENS_BY_CHAIN[destinationChainId]?.find((t) => t.symbol === "USDC");
+    if (usdcFromConfig) setDestinationToken(usdcFromConfig.address);
+  }, [destinationChainId]);
+
   useEffect(() => {
     if (destinationTokens.length === 0) return;
-    const validAddresses = new Set(destinationTokens.map((t) => t.address));
-    if (!destinationToken || !validAddresses.has(destinationToken)) {
-      setDestinationToken(destinationTokens[0].address);
+    const usdc =
+      TOKENS_BY_CHAIN[destinationChainId]?.find((t) => t.symbol === "USDC") ??
+      destinationTokens.find((t) => t.symbol === "USDC") ??
+      destinationTokens[0];
+    if (!usdc) return;
+    const validAddresses = new Set(destinationTokens.map((t) => canonicalAddress(t.address)));
+    if (!destinationToken || !validAddresses.has(canonicalAddress(destinationToken))) {
+      setDestinationToken(usdc.address);
     }
   }, [destinationChainId, destinationTokens, destinationToken]);
 
   const selectedOriginToken = useMemo(
-    () => originTokens.find((t) => t.address === originToken) ?? originTokens[0],
+    () =>
+      originTokens.find((t) => canonicalAddress(t.address) === canonicalAddress(originToken)) ??
+      originTokens[0],
     [originTokens, originToken]
   );
   const originDecimals = selectedOriginToken?.decimals ?? 6;
+  const isSOL = selectedOriginToken?.symbol === "SOL";
+  const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+  const originTokenOptions: TokenOption[] = useMemo(
+    () => originTokens.map((t) => ({ value: t.address, label: t.symbol })),
+    [originTokens]
+  );
+  const destinationChainOptions: DropdownOption[] = useMemo(
+    () =>
+      DESTINATION_CHAIN_IDS.map((id) => ({
+        value: String(id),
+        label: getChainName(id),
+      })),
+    []
+  );
+  const destinationTokenOptions: TokenOption[] = useMemo(
+    () => destinationTokens.map((t) => ({ value: t.address, label: t.symbol })),
+    [destinationTokens]
+  );
 
   const rawAmount = useMemo(() => {
     if (!amount.trim()) return "0";
@@ -87,56 +619,223 @@ export function SwapPanel() {
   }, [amount, originDecimals]);
 
   const destIsEvm = isEvmChain(destinationChainId);
-  const evmAddressValid =
-    !destIsEvm ||
-    (destinationAddressOverride.startsWith("0x") &&
-      destinationAddressOverride.length === 42);
-
+  const evmAddressValid = useMemo(() => {
+    const state = useSwapStore.getState();
+    return computeEvmAddressValid(state);
+  }, [destinationChainId, destinationAddressOverride]);
   const recipientAddress = useMemo(() => {
-    if (!publicKey) return "";
-    if (destIsEvm && evmAddressValid && destinationAddressOverride) {
-      return destinationAddressOverride.trim();
-    }
-    return publicKey.toBase58();
+    const state = useSwapStore.getState();
+    return computeRecipientAddress(state, publicKey?.toBase58() ?? null);
   }, [publicKey, destIsEvm, evmAddressValid, destinationAddressOverride]);
 
+  // Debug: log whenever destination address state or computed recipient changes
   useEffect(() => {
-    if (!destIsEvm || !publicKey) return;
-    if (destinationAddressOverride && evmAddressValid) return;
-    fetchEvmAddress();
-  }, [destIsEvm, publicKey]);
-
-  const swapParams: SwapParams | null = useMemo(
-    () =>
-      publicKey &&
-      originToken &&
-      destinationToken &&
-      rawAmount &&
-      rawAmount !== "0" &&
-      (!destIsEvm || evmAddressValid)
-        ? {
-            originChainId: ORIGIN_CHAIN_ID,
-            originToken,
-            amount: rawAmount,
-            destinationChainId,
-            destinationToken,
-            userAddress: publicKey.toBase58(),
-            recipientAddress,
-            tradeType: "exact_in" as const,
-            depositFeePayer: publicKey.toBase58(),
-          }
-        : null,
-    [
-      publicKey,
-      originToken,
-      rawAmount,
-      destinationChainId,
-      destinationToken,
-      destIsEvm,
+    if (!destIsEvm) return;
+    console.log("[EVM] state", {
+      destinationAddressOverride: destinationAddressOverride || "(empty)",
       evmAddressValid,
-      recipientAddress,
-    ]
-  );
+      recipientAddress: recipientAddress ? recipientAddress.slice(0, 10) + "…" : "(empty)",
+      publicKey: publicKey?.toBase58()?.slice(0, 8) + "…",
+      walletName: wallet?.adapter?.name ?? "(unknown)",
+    });
+  }, [destIsEvm, destinationAddressOverride, evmAddressValid, recipientAddress, publicKey, wallet?.adapter?.name]);
+
+  // When Solana wallet disconnects or changes: clear destination, quote, and params
+  // so everything is refetched from the newly connected wallet (source + destination).
+  useEffect(() => {
+    const pk = publicKey?.toBase58() ?? null;
+    if (!publicKey) {
+      console.log("[EVM] effect wallet-change: no publicKey, clearing destination/quote/params");
+      setDestinationAddressOverride("");
+      setEvmAddressError(null);
+      setSelectedQuote(null);
+      setParams(null);
+      clearBalances();
+      fetchingRef.current = false;
+      setEvmAddressFetching(false);
+      walletChangeClearedAtRef.current = null;
+      return;
+    }
+
+    console.log("[EVM] effect wallet-change: publicKey changed, clearing and scheduling refetch", {
+      publicKey: pk,
+      destIsEvm,
+      walletName: wallet?.adapter?.name ?? "(unknown)",
+    });
+    setSelectedQuote(null);
+    setParams(null);
+    setDestinationAddressOverride("");
+    setEvmAddressError(null);
+    setUserSourceTokenBalance(undefined);
+    fetchingRef.current = false;
+    setEvmAddressFetching(false);
+    walletChangeClearedAtRef.current = Date.now();
+
+    if (destIsEvm) {
+      const timer = setTimeout(() => {
+        console.log("[EVM] effect wallet-change: calling fetchEvmAddress after 350ms");
+        fetchEvmAddress();
+        walletChangeClearedAtRef.current = null;
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [publicKey, destIsEvm, fetchEvmAddress]);
+
+  // Fetch EVM address when destination is EVM and we don't have a valid address yet.
+  // Skip if we just cleared due to wallet change (wallet-change effect will refetch with correct wallet).
+  useEffect(() => {
+    const clearedAt = walletChangeClearedAtRef.current;
+    const skipDueToWalletChange = clearedAt != null && Date.now() - clearedAt < 450;
+    if (!destIsEvm || !publicKey) return;
+    if (fetchingRef.current) {
+      console.log("[EVM] effect fetch-when-empty: skip (already fetching)");
+      return;
+    }
+    if (destinationAddressOverride && evmAddressValid) {
+      console.log("[EVM] effect fetch-when-empty: skip (already have valid address)", { destinationAddressOverride: destinationAddressOverride.slice(0, 10) + "…" });
+      return;
+    }
+    if (skipDueToWalletChange) {
+      console.log("[EVM] effect fetch-when-empty: skip (just cleared for wallet change, wallet-change effect will refetch)");
+      return;
+    }
+
+    console.log("[EVM] effect fetch-when-empty: scheduling fetchEvmAddress in 250ms", {
+      destinationAddressOverride: destinationAddressOverride ? destinationAddressOverride.slice(0, 10) + "…" : "(empty)",
+      evmAddressValid,
+      walletName: wallet?.adapter?.name ?? "(unknown)",
+    });
+    const timer = setTimeout(() => {
+      console.log("[EVM] effect fetch-when-empty: calling fetchEvmAddress now");
+      fetchEvmAddress();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [destIsEvm, destinationAddressOverride, evmAddressValid, fetchEvmAddress]);
+
+  const refreshSolBalance = useCallback(() => {
+    if (!connection || !publicKey) return;
+    setUserSOLBalance(undefined);
+    getSolBalance(connection, publicKey.toBase58())
+      .then((balance) => setUserSOLBalance(balance))
+      .catch(() => setUserSOLBalance(undefined));
+  }, [connection, publicKey, setUserSOLBalance]);
+
+  // Fetch user SOL balance for Execute button (show "Add SOL" only when we know balance is too low).
+  useEffect(() => {
+    if (!connection || !publicKey) {
+      setUserSOLBalance(undefined);
+      return;
+    }
+    let cancelled = false;
+    getSolBalance(connection, publicKey.toBase58())
+      .then((balance) => {
+        if (!cancelled) setUserSOLBalance(balance);
+      })
+      .catch(() => {
+        if (!cancelled) setUserSOLBalance(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, publicKey, setUserSOLBalance]);
+
+  // Fetch source token balance (SOL or token)
+  useEffect(() => {
+    if (!connection || !publicKey || !originToken || !selectedOriginToken) {
+      setUserSourceTokenBalance(undefined);
+      return;
+    }
+    let cancelled = false;
+    const fetchBalance = async () => {
+      try {
+        if (isSOL) {
+          const balance = await getSolBalance(connection, publicKey.toBase58());
+          if (!cancelled) setUserSourceTokenBalance(balance);
+        } else {
+          const balance = await getTokenBalance(connection, publicKey.toBase58(), originToken);
+          if (!cancelled) setUserSourceTokenBalance(balance);
+        }
+      } catch {
+        if (!cancelled) setUserSourceTokenBalance(undefined);
+      }
+    };
+    fetchBalance();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, publicKey, originToken, selectedOriginToken, isSOL, setUserSourceTokenBalance]);
+
+  // Listen for EVM account changes on the provider that matches the connected Solana wallet.
+  useEffect(() => {
+    if (!destIsEvm || typeof window === "undefined") return;
+
+    const win = window as unknown as {
+      ethereum?: {
+        on?: (event: string, handler: (accounts: unknown) => void) => void;
+        removeListener?: (event: string, handler: (accounts: unknown) => void) => void;
+      };
+      phantom?: {
+        ethereum?: {
+          on?: (event: string, handler: (accounts: unknown) => void) => void;
+          removeListener?: (event: string, handler: (accounts: unknown) => void) => void;
+        };
+      };
+    };
+    const name = wallet?.adapter?.name?.toLowerCase() ?? "";
+    const ethereum =
+      name.includes("phantom") && win.phantom?.ethereum
+        ? win.phantom.ethereum
+        : win.ethereum ?? win.phantom?.ethereum;
+
+    if (!ethereum?.on) return;
+
+    const handleAccountsChanged = (accounts: unknown) => {
+      const arr = Array.isArray(accounts) ? accounts : [];
+      const first = arr[0];
+      console.log("[EVM] accountsChanged", { accounts: arr, first, listenerFor: name.includes("phantom") ? "Phantom" : "MetaMask/other" });
+      if (typeof first === "string" && first.startsWith("0x") && first.length === 42) {
+        setDestinationAddressOverride(first);
+        setEvmAddressError(null);
+      } else {
+        setDestinationAddressOverride("");
+      }
+    };
+
+    ethereum.on("accountsChanged", handleAccountsChanged);
+    return () => {
+      if (ethereum?.removeListener) {
+        ethereum.removeListener("accountsChanged", handleAccountsChanged);
+      }
+    };
+  }, [destIsEvm, wallet?.adapter?.name]);
+
+  const isSameChain = destinationChainId === ORIGIN_CHAIN_ID;
+  const isSameToken =
+    originToken.trim().toLowerCase() === destinationToken.trim().toLowerCase();
+  const isIllogicalRoute = isSameChain && isSameToken;
+
+  const getBalancesForQuote = useCallback(async () => {
+    if (!connection || !publicKey) return undefined;
+    const address = publicKey.toBase58();
+    const [sol, usdc] = await Promise.all([
+      getSolBalance(connection, address),
+      getTokenBalance(connection, address, USDC_MINT_SOLANA),
+    ]);
+    return { userSOLBalance: sol, userSolanaUSDCBalance: usdc };
+  }, [connection, publicKey]);
+
+  const swapParams: SwapParams | null = useMemo(() => {
+    const state = useSwapStore.getState();
+    return computeSwapParams(state, publicKey?.toBase58() ?? null, rawAmount);
+  }, [publicKey, originToken, rawAmount, destinationChainId, destinationToken, destIsEvm, evmAddressValid, recipientAddress]);
+
+  // Disable automatic refetching after 20 seconds of inactivity
+  // Calculate this before useQuotes so we can pass it as an option
+  const shouldDisableAutoRefetch = useMemo(() => {
+    if (!paramsLastChangedAt || !params) return false;
+    // Check if params haven't changed for 20+ seconds
+    return now - paramsLastChangedAt >= QUOTE_STALE_MS;
+  }, [paramsLastChangedAt, params, now]);
 
   const {
     data,
@@ -145,32 +844,246 @@ export function SwapPanel() {
     error,
     refetch,
     isFetching,
-  } = useQuotes(params ?? null);
-
-  const triggerQuote = useCallback(() => {
-    if (swapParams) {
-      const destAddress = swapParams.recipientAddress ?? swapParams.userAddress;
-      console.log("[SwapPanel] Get quote – destination address from wallet:", destAddress, "originChain:", swapParams.originChainId, "destChain:", swapParams.destinationChainId);
-      setParams(swapParams);
-      setSelectedQuote(null);
-    }
-  }, [swapParams]);
+  } = useQuotes(params ?? null, getBalancesForQuote, {
+    disableAutoRefetch: shouldDisableAutoRefetch,
+  });
 
   const best = data?.best ?? null;
   const quotes = data?.quotes ?? [];
+
+  // Only auto-fetch quote when form is fully filled; wait until user settles input (debounce).
+  useEffect(() => {
+    if (!swapParams) {
+      setParamsLastChangedAt(null);
+      return;
+    }
+    // Reset the "last changed" timestamp when params change
+    setParamsLastChangedAt(Date.now());
+    const t = setTimeout(() => {
+      setParams(swapParams);
+      setSelectedQuote(null);
+    }, QUOTE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [swapParams, setParams, setSelectedQuote, setParamsLastChangedAt]);
+
+  // Fetch prices when quote changes
+  useEffect(() => {
+    if (!best) {
+      setPrices({ sol: null });
+      return;
+    }
+    
+    const fetchPrices = async () => {
+      const newPrices: { sol: number | null; [currency: string]: number | null } = { sol: null };
+      
+      // Fetch SOL price
+      try {
+        newPrices.sol = await getSolPriceInUsdc();
+      } catch (error) {
+        console.warn("[SwapPanel] Failed to fetch SOL price:", error);
+      }
+      
+      // Fetch relayer fee currency price
+      const feeCurrency = best.userFeeCurrency ?? best.feeCurrency;
+      if (feeCurrency && feeCurrency !== "SOL") {
+        // USDC/USDT are always $1
+        if (feeCurrency === "USDC" || feeCurrency === "USDT") {
+          newPrices[feeCurrency] = 1.0;
+        } else {
+          try {
+            // Find token address for the fee currency (check both origin and destination chains)
+            const originTokens = TOKENS_BY_CHAIN[ORIGIN_CHAIN_ID] ?? [];
+            const destTokens = TOKENS_BY_CHAIN[destinationChainId] ?? [];
+            const token = originTokens.find((t) => t.symbol === feeCurrency) ?? 
+                         destTokens.find((t) => t.symbol === feeCurrency);
+            if (token) {
+              // Try destination chain first, then origin
+              const chainId = destTokens.find((t) => t.symbol === feeCurrency) ? destinationChainId : ORIGIN_CHAIN_ID;
+              newPrices[feeCurrency] = await getTokenPriceUsd(token.address, chainId);
+            }
+          } catch (error) {
+            console.warn(`[SwapPanel] Failed to fetch ${feeCurrency} price:`, error);
+          }
+        }
+      }
+      
+      // Fetch destination token price (for "Minimum received" USD display)
+      if (destinationToken && destinationChainId) {
+        const destTokenSymbol = best.feeCurrency; // The token user receives
+        if (destTokenSymbol && destTokenSymbol !== "SOL") {
+          // USDC/USDT are always $1
+          if (destTokenSymbol === "USDC" || destTokenSymbol === "USDT") {
+            newPrices[destTokenSymbol] = 1.0;
+          } else if (!newPrices[destTokenSymbol]) {
+            // Only fetch if we haven't already fetched it (might be same as fee currency)
+            try {
+              const destTokens = TOKENS_BY_CHAIN[destinationChainId] ?? [];
+              const token = destTokens.find((t) => t.symbol === destTokenSymbol);
+              if (token) {
+                newPrices[destTokenSymbol] = await getTokenPriceUsd(token.address, destinationChainId);
+              }
+            } catch (error) {
+              console.warn(`[SwapPanel] Failed to fetch ${destTokenSymbol} price:`, error);
+            }
+          }
+        }
+      }
+      
+      setPrices(newPrices);
+    };
+
+    fetchPrices();
+  }, [best, destinationChainId, destinationToken, setPrices]);
+  
+  // Helper function to format amount with USD value
+  const formatAmountWithUsd = useCallback((
+    amount: string,
+    currency: string,
+    priceUsd: number | null
+  ): string => {
+    const formatted = formatRawAmount(amount, currency);
+    if (priceUsd == null || priceUsd === 0) return `${formatted} ${currency}`;
+    const usdValue = parseFloat(formatted) * priceUsd;
+    const usdFormatted = usdValue < 0.01 ? "<$0.01" : `$${usdValue.toFixed(2)}`;
+    return `${formatted} ${currency} (${usdFormatted})`;
+  }, []);
+  
+  // Force re-render to check timeout status periodically
+  useEffect(() => {
+    if (!best || !paramsLastChangedAt) return;
+    const interval = setInterval(() => {
+      updateNow();
+    }, 1000); // Update every second to check timeout
+    return () => clearInterval(interval);
+  }, [best, paramsLastChangedAt, updateNow]);
+  
+  // Show timeout prompt if params haven't changed for 20 seconds AND we have a quote
+  const isTimedOut =
+    best != null &&
+    paramsLastChangedAt != null &&
+    now - paramsLastChangedAt >= QUOTE_STALE_MS;
   const isExpired =
     best != null && Date.now() >= best.expiryAt;
+  // Check if user has sufficient source token balance
+  const hasSufficientSourceToken = useMemo(() => {
+    // If amount is empty or zero, allow (no swap to execute)
+    if (!rawAmount || rawAmount === "0") {
+      return true;
+    }
+    // If balance is still loading, block execution (don't allow until we know)
+    if (userSourceTokenBalance === undefined) {
+      return false;
+    }
+    try {
+      const required = BigInt(rawAmount);
+      const available = BigInt(userSourceTokenBalance);
+      return available >= required;
+    } catch {
+      return false; // Block on parse errors to be safe
+    }
+  }, [rawAmount, userSourceTokenBalance]);
+
+  // Only show "Add SOL" when we have a known balance that's too low. If balance is undefined (loading or RPC failed), don't block.
+  const hasSufficientSol =
+    selectedQuote == null ||
+    userSOLBalance === undefined ||
+    hasEnoughSolForQuote(selectedQuote, userSOLBalance);
   const canExecute =
-    selectedQuote != null && !executing && !isExpired;
+    selectedQuote != null && 
+    !executing && 
+    !isExpired && 
+    hasSufficientSol && 
+    hasSufficientSourceToken;
+  const insufficientSourceToken =
+    rawAmount !== "0" &&
+    (userSourceTokenBalance === undefined || !hasSufficientSourceToken);
 
   const handleExecute = useCallback(async () => {
-    if (!selectedQuote || !canExecute || !sendTransaction || !connection) return;
+    const currentSelectedQuote = useSwapStore.getState().selectedQuote;
+    const currentSwapParams = useSwapStore.getState().params;
+    if (!currentSelectedQuote || !canExecute || !sendTransaction || !connection || !currentSwapParams) return;
     setExecuting(true);
     setExecuteError(null);
     setExecuteSuccess(null);
     try {
-      const raw = selectedQuote.raw as Record<string, unknown>;
-      if (selectedQuote.provider === "debridge" && raw?.tx) {
+      // Block execution if quote requires SOL and user has insufficient balance (fresh check)
+      const latestSol = await getSolBalance(connection, publicKey!.toBase58());
+      if (!hasEnoughSolForQuote(currentSelectedQuote, latestSol)) {
+        setExecuteError("Insufficient SOL for gas. Add ~0.02 SOL to your wallet and try again.");
+        return;
+      }
+      let quoteToExecute = currentSelectedQuote;
+
+      // Relay: Always re-quote and re-validate before execution
+      if (currentSelectedQuote.provider === "relay") {
+        try {
+          // Re-fetch quotes from API
+          const res = await fetch("/api/quotes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(currentSwapParams),
+          });
+
+          if (!res.ok) {
+            throw new Error("Failed to re-quote Relay");
+          }
+
+          const json = await res.json();
+          if (!json.success || !json.data) {
+            throw new Error("Invalid response from quote API");
+          }
+
+          const freshQuotes = json.data.quotes as NormalizedQuote[];
+          const freshQuote = freshQuotes.find((q) => q.provider === "relay");
+
+          if (!freshQuote) {
+            throw new Error("Relay quote no longer available");
+          }
+
+          // Re-validate solvency
+          const validation = validateSponsorProfitability(freshQuote);
+          if (!validation.valid) {
+            throw new Error(`Quote no longer valid: ${validation.reason}`);
+          }
+
+          // Use fresh quote for execution
+          quoteToExecute = freshQuote;
+          setSelectedQuote(freshQuote);
+        } catch (err) {
+          setExecuteError(err instanceof Error ? err.message : "Failed to re-quote Relay");
+          return;
+        }
+      }
+
+      // DLN: Check expiry and transaction timing
+      if (currentSelectedQuote.provider === "debridge") {
+        const quoteAge = Date.now() - (currentSelectedQuote.expiryAt - QUOTE_VALIDITY_MS);
+        const DEBRIDGE_TRANSACTION_WINDOW_MS = 30_000; // 30 seconds
+        const DEBRIDGE_WARNING_THRESHOLD_MS = 25_000; // 25 seconds
+        
+        if (Date.now() >= currentSelectedQuote.expiryAt) {
+          // Quote expired - refresh required
+          try {
+            const freshQuote = await getDebridgeQuote(currentSwapParams);
+            quoteToExecute = freshQuote;
+            setSelectedQuote(freshQuote);
+          } catch (err) {
+            setExecuteError(err instanceof Error ? err.message : "Quote expired, failed to refresh");
+            return;
+          }
+        } else if (quoteAge > DEBRIDGE_TRANSACTION_WINDOW_MS) {
+          // Quote too old - block execution (beyond 30s window)
+          setExecuteError("Quote is too old. Please fetch a new quote for better fulfillment probability.");
+          return;
+        } else if (quoteAge > DEBRIDGE_WARNING_THRESHOLD_MS) {
+          // Quote approaching expiry - warn but allow (between 25-30s)
+          console.warn("[SwapPanel] deBridge quote age:", quoteAge, "ms - approaching expiry window");
+          // Continue execution but user is warned
+        }
+      }
+
+      const raw = quoteToExecute.raw as Record<string, unknown>;
+      if (quoteToExecute.provider === "debridge" && raw?.tx) {
         const tx = raw.tx as Record<string, unknown>;
         if (typeof window !== "undefined" && (window as unknown as { ethereum?: { request: (args: unknown) => Promise<unknown> } }).ethereum?.request) {
           const hash = await (window as unknown as { ethereum: { request: (args: unknown) => Promise<unknown> } }).ethereum.request({
@@ -189,7 +1102,7 @@ export function SwapPanel() {
           setExecuteError("EVM wallet required for deBridge execution. Raw tx logged to console.");
           console.log("deBridge raw tx (EVM):", raw.tx);
         }
-      } else if (selectedQuote.provider === "relay" && raw?.steps) {
+      } else if (quoteToExecute.provider === "relay" && raw?.steps) {
         const steps = raw.steps as Array<{ kind?: string; items?: Array<{ data?: Record<string, unknown> }> }>;
         const firstStep = steps[0];
         const firstItem = firstStep?.items?.[0];
@@ -222,269 +1135,307 @@ export function SwapPanel() {
     } finally {
       setExecuting(false);
     }
-  }, [selectedQuote, canExecute, connection, sendTransaction]);
+  }, [canExecute, connection, publicKey, sendTransaction, setExecuting, setExecuteError, setExecuteSuccess, setSelectedQuote]);
 
   useEffect(() => {
     if (best && !selectedQuote) setSelectedQuote(best);
-  }, [best, selectedQuote]);
+  }, [best, selectedQuote, setSelectedQuote]);
 
   return (
-    <div style={{ marginTop: "1.5rem" }}>
-      <section
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: "8px",
-          padding: "1.25rem",
-          marginBottom: "1rem",
-        }}
-      >
-        <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "1rem" }}>
-          Cross-chain swap
-        </h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          <p style={{ fontSize: "0.75rem", color: "var(--muted-foreground, #666)", marginBottom: "0.25rem" }}>
-            From Solana (your connected wallet)
-          </p>
-          <div>
-            <label style={{ fontSize: "0.75rem", display: "block", marginBottom: "0.25rem" }}>Token on Solana</label>
-            <select
-              value={originToken}
-              onChange={(e) => setOriginToken(e.target.value)}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px" }}
-            >
-              {originTokens.map((t) => (
-                <option key={t.address} value={t.address}>
-                  {t.symbol}
-                </option>
-              ))}
-            </select>
+    <div {...stylex.props(styles.panelContainer)}>
+      <section {...stylex.props(styles.section)}>
+        {/* From */}
+        <div {...stylex.props(styles.inputSection)}>
+          <div {...stylex.props(styles.inputHeader)}>
+            <span {...stylex.props(styles.chainBadge)} aria-label="Solana">
+              <svg width="20" height="20" viewBox="0 0 397 311" fill="none" xmlns="http://www.w3.org/2000/svg" {...stylex.props(styles.solanaIcon)}>
+                <path d="M64.6 237.9c2.4-2.4 5.7-3.8 9.2-3.8h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1l62.7-62.7z" fill="url(#solana-a)" />
+                <path d="M64.6 3.8C67.1 1.4 70.4 0 73.8 0h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1L64.6 3.8z" fill="url(#solana-b)" />
+                <path d="M332.3 120.1c-2.4-2.4-5.7-3.8-9.2-3.8H6.5c-5.8 0-8.7 7-4.6 11.1l62.7 62.7c2.4 2.4 5.7 3.8 9.2 3.8h316.6c5.8 0 8.7-7 4.6-11.1l-62.7-62.7z" fill="url(#solana-c)" />
+                <defs>
+                  <linearGradient id="solana-a" x1="360.9" y1="351.5" x2="141.2" y2="-69.2" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#14F195" />
+                    <stop offset="1" stopColor="#9945FF" />
+                  </linearGradient>
+                  <linearGradient id="solana-b" x1="264.5" y1="401.6" x2="45" y2="-19.2" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#14F195" />
+                    <stop offset="1" stopColor="#9945FF" />
+                  </linearGradient>
+                  <linearGradient id="solana-c" x1="312.6" y1="401.6" x2="93" y2="-19.2" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#14F195" />
+                    <stop offset="1" stopColor="#9945FF" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </span>
           </div>
-          <div>
-            <label style={{ fontSize: "0.75rem", display: "block", marginBottom: "0.25rem" }}>
-              Amount ({selectedOriginToken?.symbol ?? "token"}) — enter in full units
-            </label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
-              }}
-              placeholder={selectedOriginToken?.symbol === "USDC" ? "e.g. 10 (min ~10 for cross-chain)" : "e.g. 10"}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px", boxSizing: "border-box" }}
-            />
-            {selectedOriginToken && amount.trim() && rawAmount !== "0" && (
-              <p style={{ fontSize: "0.7rem", color: "var(--muted-foreground, #666)", marginTop: "0.25rem" }}>
-                = {rawAmount} raw units (min ~10 {selectedOriginToken?.symbol} for cross-chain)
-              </p>
-            )}
-          </div>
-          <div>
-            <label style={{ fontSize: "0.75rem", display: "block", marginBottom: "0.25rem" }}>Destination chain</label>
-            <select
-              value={destinationChainId}
-              onChange={(e) => setDestinationChainId(Number(e.target.value))}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px" }}
-            >
-              {DESTINATION_CHAIN_IDS.map((id) => (
-                <option key={id} value={id}>
-                  {getChainName(id)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: "0.75rem", display: "block", marginBottom: "0.25rem" }}>Destination token</label>
-            <select
-              value={destinationToken}
-              onChange={(e) => setDestinationToken(e.target.value)}
-              style={{ width: "100%", padding: "0.5rem", borderRadius: "4px" }}
-            >
-              {destinationTokens.map((t) => (
-                <option key={t.address} value={t.address}>
-                  {t.symbol}
-                </option>
-              ))}
-            </select>
-          </div>
-          {destIsEvm && (
-            <div>
-              <label style={{ fontSize: "0.75rem", display: "block", marginBottom: "0.25rem" }}>
-                Destination address (EVM) — from MetaMask/Phantom when available
-              </label>
+          <div {...stylex.props(styles.inputRow)}>
+            <div {...stylex.props(styles.inputGroup)}>
+              <TokenSelect
+                label="Asset"
+                options={originTokenOptions}
+                value={originToken}
+                onChange={setOriginToken}
+                placeholder="Select token"
+              />
+            </div>
+          <div {...stylex.props(styles.inputGroupWide)}>
+              <label {...stylex.props(form.label)}>Amount</label>
               <input
                 type="text"
-                value={destinationAddressOverride}
-                onChange={(e) => setDestinationAddressOverride(e.target.value)}
-                placeholder={evmAddressFetching ? "Fetching your EVM address…" : "0x… or connect wallet above"}
-                disabled={evmAddressFetching}
-                style={{
-                  width: "100%",
-                  padding: "0.5rem",
-                  borderRadius: "4px",
-                  boxSizing: "border-box",
-                  fontFamily: "monospace",
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
                 }}
+                placeholder="0.0"
+                {...stylex.props(styles.amountInput)}
               />
-              {!evmAddressValid && (
-                <button
-                  type="button"
-                  onClick={fetchEvmAddress}
-                  disabled={evmAddressFetching}
-                  style={{
-                    marginTop: "0.35rem",
-                    padding: "0.35rem 0.6rem",
-                    fontSize: "0.75rem",
-                    borderRadius: "4px",
-                    cursor: evmAddressFetching ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {evmAddressFetching ? "Connecting…" : "Use my EVM address (MetaMask/Phantom)"}
-                </button>
-              )}
-              {evmAddressFetching && (
-                <p style={{ fontSize: "0.75rem", color: "var(--muted-foreground, #666)", marginTop: "0.25rem" }}>
-                  Approve in your wallet to use your EVM address
-                </p>
-              )}
-              {destIsEvm && destinationAddressOverride && !evmAddressValid && (
-                <p style={{ fontSize: "0.75rem", color: "var(--destructive)", marginTop: "0.25rem" }}>
-                  Enter a valid EVM address (0x + 40 hex chars)
+            </div>
+          </div>
+        </div>
+
+        <div {...stylex.props(styles.arrowContainer)}>
+          <span {...stylex.props(styles.arrowIcon)} aria-hidden>↓</span>
+        </div>
+
+        {/* To */}
+        <div {...stylex.props(styles.toSection)}>
+          <div {...stylex.props(styles.toInputRow)}>
+          <div {...stylex.props(styles.inputGroupWide)}>
+            <SelectDropdown
+              label="Chain"
+              options={destinationChainOptions}
+              value={String(destinationChainId)}
+              onChange={(v) => setDestinationChainId(Number(v))}
+              placeholder="Select chain"
+            />
+          </div>
+            <div {...stylex.props(styles.inputGroup)}>
+              <TokenSelect
+                label="Token"
+                options={destinationTokenOptions}
+                value={destinationToken}
+                onChange={setDestinationToken}
+                placeholder="Select token"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div {...stylex.props(layout.flexColGap)}>
+          {destIsEvm && evmAddressError && (
+            <p {...stylex.props(styles.errorText)}>
+              Could not get EVM address. Connect your EVM wallet or try again.
+            </p>
+          )}
+          {isIllogicalRoute && (
+            <p {...stylex.props(styles.invalidRouteText)}>
+              Same token on same chain is not a valid swap. Choose a different destination token or chain.
+            </p>
+          )}
+        </div>
+
+        {/* Best quote in same interface (MetaMask-style) */}
+        {params != null && (
+          <div {...stylex.props(styles.quoteSection)}>
+            {isLoading && (
+              <p {...stylex.props(styles.loadingText)}>Loading best quote…</p>
+            )}
+          {isError && (
+            <div {...stylex.props(styles.errorSection)}>
+              <p {...stylex.props(
+                error && (error as Error & { code?: string }).code === "NEED_SOL_FOR_GAS" 
+                  ? styles.errorMessage 
+                  : styles.errorMessageNoMargin
+              )}>
+                {error?.message ?? "Failed to load quotes"}
+              </p>
+              {error && (error as Error & { code?: string }).code === "NEED_SOL_FOR_GAS" && (
+                <p {...stylex.props(styles.errorHint)}>
+                  Get SOL from an exchange or a faucet, send it to your connected wallet, then try again.
                 </p>
               )}
             </div>
           )}
-          <button
-            type="button"
-            onClick={triggerQuote}
-            disabled={!swapParams || isFetching}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "6px",
-              fontWeight: 600,
-              cursor: swapParams && !isFetching ? "pointer" : "not-allowed",
-              opacity: swapParams && !isFetching ? 1 : 0.6,
-            }}
-          >
-            {isFetching ? "Fetching…" : "Get quote"}
-          </button>
-        </div>
-      </section>
-
-      {params != null && (
-        <section
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "1.25rem",
-            marginBottom: "1rem",
-          }}
-        >
-          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "1rem" }}>
-            Quote
-          </h2>
-          {isLoading && <p style={{ fontSize: "0.875rem" }}>Loading quotes…</p>}
-          {isError && (
-            <p style={{ fontSize: "0.875rem", color: "var(--destructive)" }}>
-              {error?.message ?? "Failed to load quotes"}
+          {data && !isLoading && quotes.length === 0 && (
+            <p {...stylex.props(styles.noRoutesText)}>
+              No routes available for this pair. Try a different amount or token.
             </p>
           )}
           {data && best && !isLoading && (
             <>
-              {isExpired ? (
-                <p style={{ fontSize: "0.875rem", marginBottom: "0.5rem" }}>
-                  Quote expired, refetch quote
+              {isTimedOut && (
+                <p {...stylex.props(styles.timeoutMessage)}>
+                  Your quote timed out.{" "}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setSelectedQuote(null);
+                      const newTimestamp = Date.now();
+                      setParamsLastChangedAt(newTimestamp); // Reset timeout timer to re-enable auto-refetching
+                      // Manually trigger refetch
+                      await refetch();
+                    }}
+                    disabled={isFetching}
+                    {...stylex.props(
+                      buttons.textLink,
+                      isFetching && buttons.textLinkDisabled
+                    )}
+                    style={{ 
+                      background: 'transparent',
+                      border: 'none',
+                      outline: 'none',
+                      boxShadow: 'none',
+                    }}
+                  >
+                    Fetch a new one?
+                  </button>
                 </p>
-              ) : (
-                <div style={{ fontSize: "0.875rem", marginBottom: "0.5rem" }}>
-                  {(() => {
-                    const q = selectedQuote ?? best;
-                    if (!q) return null;
-                    const solanaNetworkLine =
-                      q.solanaCostToUser && q.solanaCostToUser !== "0"
-                        ? ` + ~${formatRawAmount(q.solanaCostToUser, "SOL")} SOL (network)`
-                        : "";
-                    return (
-                      <>
-                        <p>You receive: {q.expectedOutFormatted} {q.feeCurrency} (provider: {q.provider})</p>
-                        <p>
-                          {q.feePayer === "sponsor"
-                            ? `Fees: ${formatRawAmount(q.fees, q.feeCurrency)} ${q.feeCurrency} (sponsored)`
-                            : `You pay: ${formatRawAmount(q.fees, q.feeCurrency)} ${q.feeCurrency}${solanaNetworkLine}`}
-                        </p>
-                      </>
-                    );
-                  })()}
-                </div>
               )}
-              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => refetch()}
-                  disabled={isFetching}
-                  style={{
-                    padding: "0.4rem 0.75rem",
-                    borderRadius: "6px",
-                    fontSize: "0.875rem",
-                    cursor: isFetching ? "not-allowed" : "pointer",
-                  }}
-                >
-                  Refetch quote
-                </button>
-                {quotes.length > 1 && (
-                  <div style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}>
-                    {quotes.map((q) => (
-                      <button
-                        key={q.provider}
-                        type="button"
-                        onClick={() => setSelectedQuote(q)}
-                        style={{
-                          padding: "0.4rem 0.75rem",
-                          borderRadius: "6px",
-                          fontSize: "0.875rem",
-                          cursor: "pointer",
-                          border: selectedQuote?.provider === q.provider ? "2px solid var(--primary)" : "1px solid var(--border)",
-                        }}
-                      >
-                        {q.provider}
-                      </button>
-                    ))}
+              {(() => {
+                const q = selectedQuote ?? best;
+                if (!q) return null;
+
+                const effectiveReceive = effectiveReceiveRaw(q);
+                const expectedOutNum = BigInt(q.expectedOut);
+                const expectedOutFormattedNum = parseFloat(q.expectedOutFormatted);
+                const useRatio =
+                  expectedOutNum > BigInt(0) &&
+                  Number.isFinite(expectedOutFormattedNum) &&
+                  expectedOutFormattedNum >= 0;
+                const effectiveReceiveFormatted = useRatio
+                  ? (() => {
+                      const ratio = Number(effectiveReceive) / Number(expectedOutNum);
+                      const value = ratio * expectedOutFormattedNum;
+                      if (!Number.isFinite(value) || value < 0) return "0";
+                      // Format with max 3 decimal places, removing trailing zeros
+                      if (value >= 1e9) {
+                        return String(Math.round(value));
+                      }
+                      const formatted = value.toFixed(3);
+                      return formatted.replace(/\.?0+$/, "");
+                    })()
+                  : formatRawAmount(String(effectiveReceive), q.feeCurrency);
+
+                if (process.env.NODE_ENV === "development") {
+                  console.log("[SwapPanel] quote display:", {
+                    provider: q.provider,
+                    expectedOut: q.expectedOut,
+                    expectedOutFormatted: q.expectedOutFormatted,
+                    effectiveReceiveRaw: String(effectiveReceive),
+                    effectiveReceiveFormatted,
+                    feeCurrency: q.feeCurrency,
+                    useRatio,
+                  });
+                }
+
+                const isGasless = !!q.gasless;
+                const networkFeeDisplay =
+                  isGasless
+                    ? "Sponsored"
+                    : q.solanaCostToUser && q.solanaCostToUser !== "0"
+                      ? `-~${formatAmountWithUsd(q.solanaCostToUser, "SOL", prices.sol)}`
+                      : "—";
+                const relayerFeeCurrency = q.userFeeCurrency ?? q.feeCurrency ?? "USDC";
+                const relayerFeeAmount = q.userFee && q.userFee !== "0" ? q.userFee : q.fees && q.fees !== "0" ? q.fees : "0";
+                // Get price - handle SOL case (stored as "sol" lowercase)
+                const relayerFeePrice = relayerFeeCurrency === "SOL" 
+                  ? prices.sol 
+                  : prices[relayerFeeCurrency] ?? null;
+                const relayerFeeDisplay =
+                  relayerFeeAmount !== "0"
+                    ? `-${formatAmountWithUsd(relayerFeeAmount, relayerFeeCurrency, relayerFeePrice)}`
+                    : "0";
+
+                return (
+                  <div {...stylex.props(styles.quoteDetails)}>
+                    <div {...stylex.props(styles.itemizedSection)}>
+                      <div {...stylex.props(styles.itemizedRow)}>
+                        <span {...stylex.props(styles.itemizedLabel)}>Network fee</span>
+                        <span {...stylex.props(styles.itemizedValue)}>{networkFeeDisplay}</span>
+                      </div>
+                      <div {...stylex.props(styles.itemizedRow)}>
+                        <span {...stylex.props(styles.itemizedLabel)}>Relayer fee</span>
+                        <span {...stylex.props(styles.itemizedValueRed)}>{relayerFeeDisplay}</span>
+                      </div>
+                      <div {...stylex.props(styles.itemizedRow)}>
+                        <span {...stylex.props(styles.itemizedLabel)}>Gas sponsored</span>
+                        <span {...stylex.props(styles.itemizedValue)}>{isGasless ? "Yes" : "No"}</span>
+                      </div>
+                      {q.priceDrift != null && q.priceDrift > 0 && (
+                        <div {...stylex.props(styles.itemizedRow)}>
+                          <span {...stylex.props(styles.itemizedLabel)}>Price drift</span>
+                          <span {...stylex.props(styles.itemizedValue)}>{(q.priceDrift * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      <div {...stylex.props(styles.itemizedMarginTop)}>
+                        <span {...stylex.props(styles.itemizedLabel)}>Minimum received</span>
+                        <span {...stylex.props(styles.itemizedValueBold)}>{effectiveReceiveFormatted} {q.feeCurrency}</span>
+                      </div>
+                    </div>
+                    {quotes.length > 1 && (
+                      <p {...stylex.props(styles.otherOptions)}>
+                        Other options:{" "}
+                        {quotes
+                          .filter((oq) => oq.provider !== q.provider)
+                          .map((oq) => (
+                            <button
+                              key={oq.provider}
+                              type="button"
+                              onClick={() => setSelectedQuote(oq)}
+                              {...stylex.props(buttons.small, styles.otherOptionButton)}
+                            >
+                              {oq.gasless ? "Gasless" : "Requires gas"}
+                            </button>
+                          ))}
+                      </p>
+                    )}
                   </div>
+                );
+              })()}
+              <div {...stylex.props(styles.actionRow)}>
+                {insufficientSourceToken ? (
+                  <button
+                    type="button"
+                    disabled
+                    {...stylex.props(styles.insufficientFundsButton)}
+                  >
+                    Insufficient funds
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleExecute}
+                    disabled={!canExecute}
+                    {...stylex.props(
+                      styles.confirmButton,
+                      !canExecute && styles.confirmButtonDisabled
+                    )}
+                  >
+                    {executing ? "Confirming…" : "Confirm"}
+                  </button>
                 )}
-                <button
-                  type="button"
-                  onClick={handleExecute}
-                  disabled={!canExecute}
-                  style={{
-                    padding: "0.4rem 0.75rem",
-                    borderRadius: "6px",
-                    fontSize: "0.875rem",
-                    fontWeight: 600,
-                    cursor: canExecute ? "pointer" : "not-allowed",
-                    opacity: canExecute ? 1 : 0.6,
-                  }}
-                >
-                  {executing ? "Executing…" : "Execute"}
-                </button>
               </div>
               {executeSuccess && (
-                <p style={{ fontSize: "0.875rem", color: "var(--success, green)", marginTop: "0.5rem" }}>
+                <p {...stylex.props(styles.successMessage)}>
                   {executeSuccess}
                 </p>
               )}
               {executeError && (
-                <p style={{ fontSize: "0.875rem", color: "var(--destructive)", marginTop: "0.5rem" }}>
+                <p {...stylex.props(styles.executeErrorMessage)}>
                   {executeError}
                 </p>
               )}
             </>
           )}
           {params != null && !data && !isLoading && !isError && (
-            <p style={{ fontSize: "0.875rem" }}>Click “Get quote” to fetch.</p>
+            <p {...stylex.props(styles.gettingQuoteText)}>Getting your quote…</p>
           )}
-        </section>
-      )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
