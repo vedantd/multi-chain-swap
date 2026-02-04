@@ -879,14 +879,15 @@ export function SwapPanel() {
   );
   
   // Use preloaded tokens if available, otherwise fallback to fetched or config tokens
-  const destinationTokens = useMemo(() => {
+  const destinationTokens = useMemo((): typeof destinationTokensFetched => {
     // Prefer fetched tokens for current chain
     if (destinationTokensFetched.length > 0) {
       return destinationTokensFetched;
     }
     // Use preloaded tokens if available
-    if (preloadedTokens[destinationChainId]?.length > 0) {
-      return preloadedTokens[destinationChainId];
+    const preloaded = preloadedTokens[destinationChainId];
+    if (preloaded && preloaded.length > 0) {
+      return preloaded;
     }
     // Fallback to config tokens
     return destinationFallback;
@@ -1669,7 +1670,7 @@ export function SwapPanel() {
                 // Update swap history with bridge status and destination transaction hash
                 if (swapRecordId) {
                   try {
-                    const destinationTxHash = bridgeStatus.txHashes?.[0] ?? null;
+                    const destinationTxHash = bridgeStatus.txHashes?.[0] ?? undefined;
                     updateSwapStatus({
                       id: swapRecordId,
                       status: swapStatus,

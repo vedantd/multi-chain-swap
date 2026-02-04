@@ -37,9 +37,10 @@ export async function getTokenPriceUsd(
   }
   
   // Fetch from CoinGecko if we have a mapping
-  if (token?.symbol && COINGECKO_IDS[token.symbol]) {
+  const symbol = token?.symbol;
+  if (symbol && COINGECKO_IDS[symbol]) {
     try {
-      const coingeckoId = COINGECKO_IDS[token.symbol];
+      const coingeckoId = COINGECKO_IDS[symbol];
       const response = await fetch(
         `https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`
       );

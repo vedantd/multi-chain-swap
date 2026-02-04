@@ -17,7 +17,7 @@ export async function getMinimumBalanceForRentExempt(
   connection: Connection,
   dataLength: number
 ): Promise<number> {
-  return connection.getMinimumBalanceForRentExempt(dataLength);
+  return connection.getMinimumBalanceForRentExemption(dataLength);
 }
 
 /**
@@ -38,7 +38,7 @@ export async function isDustAmount(
 ): Promise<boolean> {
   const isToken = mint !== "SOL";
   const dataLength = isToken ? STANDARD_TOKEN_ACCOUNT_SIZE : 0;
-  const minBalance = await connection.getMinimumBalanceForRentExempt(dataLength);
+  const minBalance = await connection.getMinimumBalanceForRentExemption(dataLength);
   return balance < BigInt(minBalance);
 }
 
@@ -55,7 +55,7 @@ export async function calculateDustThreshold(
 ): Promise<bigint> {
   const isToken = mint !== "SOL";
   const dataLength = isToken ? STANDARD_TOKEN_ACCOUNT_SIZE : 0;
-  const minBalance = await connection.getMinimumBalanceForRentExempt(dataLength);
+  const minBalance = await connection.getMinimumBalanceForRentExemption(dataLength);
   return BigInt(minBalance);
 }
 

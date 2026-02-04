@@ -71,12 +71,11 @@ test.describe('Quote Fetching', () => {
     // Either we see quote details, error, or no routes message
     const hasNetworkFee = await homePage.networkFee.isVisible().catch(() => false);
     const hasRelayerFee = await homePage.relayerFee.isVisible().catch(() => false);
-    const hasMinimumReceived = await homePage.minimumReceived.isVisible().catch(() => false);
     const hasError = await homePage.quoteError.isVisible().catch(() => false);
     const hasNoRoutes = await homePage.noRoutesMessage.isVisible().catch(() => false);
 
     // Should have either quote details or an error/no routes message
-    const hasQuoteDetails = hasNetworkFee || hasRelayerFee || hasMinimumReceived;
+    const hasQuoteDetails = hasNetworkFee || hasRelayerFee;
     const hasSomeResponse = hasQuoteDetails || hasError || hasNoRoutes;
     
     expect(hasSomeResponse).toBeTruthy();

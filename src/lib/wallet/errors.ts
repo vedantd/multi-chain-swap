@@ -48,7 +48,6 @@ export function getWalletErrorMessage(error: WalletError): string {
  */
 
 export interface ErrorContext {
-  error: unknown;
   transactionType?: "swap" | "approval" | "deposit";
   provider?: "relay" | "debridge";
 }

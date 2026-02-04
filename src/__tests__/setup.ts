@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
 
 // Mock clusterApiUrl so provider does not depend on Node/browser RPC at test time
 vi.mock("@solana/web3.js", async (importOriginal) => {

@@ -32,6 +32,7 @@
     "@stylexjs/babel-plugin": "^0.17.5",
     "@stylexjs/postcss-plugin": "^0.17.5",
     "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",

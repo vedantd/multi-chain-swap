@@ -44,7 +44,7 @@ const ADDRESS_TO_COINGECKO: Record<string, { id: string; name: string }> = {
   
   // Ethereum tokens (normalized to lowercase)
   "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": { id: "6319", name: "usd-coin" }, // USDC (Ethereum)
-  "0x0000000000000000000000000000000000000000": { id: "279", name: "ethereum" }, // ETH
+  // Note: Native tokens (ETH, BNB, AVAX) use zero address on multiple chains, so we rely on symbol-based lookup instead
   
   // Base tokens
   "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { id: "6319", name: "usd-coin" }, // USDC (Base)
@@ -62,11 +62,11 @@ const ADDRESS_TO_COINGECKO: Record<string, { id: string; name: string }> = {
   
   // BNB Chain tokens
   "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": { id: "6319", name: "usd-coin" }, // USDC (BNB)
-  "0x0000000000000000000000000000000000000000": { id: "1839", name: "binancecoin" }, // BNB (BNB Chain)
+  // Note: BNB native token uses zero address, rely on symbol-based lookup (BNB symbol is mapped above)
   
   // Avalanche tokens
   "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e": { id: "6319", name: "usd-coin" }, // USDC (Avalanche)
-  "0x0000000000000000000000000000000000000000": { id: "5805", name: "avalanche-2" }, // AVAX (Avalanche)
+  // Note: AVAX native token uses zero address, rely on symbol-based lookup (AVAX symbol is mapped above)
 };
 
 /**

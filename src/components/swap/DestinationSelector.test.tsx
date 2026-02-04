@@ -42,5 +42,4 @@ describe("DestinationSelector", () => {
     fireEvent.click(screen.getByText("MON"));
     expect(onChangeToken).toHaveBeenCalledWith("0xmon");
   });
-}
-
+});
