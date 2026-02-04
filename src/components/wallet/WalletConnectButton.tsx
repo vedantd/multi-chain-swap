@@ -1,7 +1,14 @@
 "use client";
 
+import * as stylex from '@stylexjs/stylex';
 import { useEffect, useState } from "react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+
+const styles = stylex.create({
+  button: {
+    marginRight: 0,
+  },
+});
 
 /**
  * Wallet connect/disconnect button using the official adapter UI.
@@ -22,7 +29,7 @@ export function WalletConnectButton() {
       <button
         type="button"
         className="wallet-adapter-button-trigger"
-        style={{ marginRight: 0 }}
+        {...stylex.props(styles.button)}
         disabled
         aria-hidden
       >
@@ -34,7 +41,7 @@ export function WalletConnectButton() {
   return (
     <WalletMultiButton
       className="wallet-adapter-button-trigger"
-      style={{ marginRight: 0 }}
+      {...stylex.props(styles.button)}
     />
   );
 }
