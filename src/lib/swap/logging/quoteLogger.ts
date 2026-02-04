@@ -111,16 +111,6 @@ export async function logQuoteEvaluation(
     })
     .join(" | ");
   const bestLine = best ? `best=${best.provider}` : "best=none";
-  console.log(
-    "[QUOTE]",
-    requestSummary,
-    "| quotes:",
-    quotesSummary,
-    "|",
-    bestLine,
-    "| reason:",
-    reasonChosen.human
-  );
 
   // Only log to file on server-side (where fs is available)
   if (typeof window !== "undefined") {

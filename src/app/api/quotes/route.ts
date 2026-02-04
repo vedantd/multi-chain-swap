@@ -106,18 +106,7 @@ export async function POST(request: Request) {
         ? params.userSolanaUSDCBalance.trim()
         : undefined;
 
-    console.log("[API /quotes] Request body:", JSON.stringify(swapParams, null, 2));
-    console.log("[API /quotes] chains:", swapParams.originChainId, "->", swapParams.destinationChainId, "recipient:", swapParams.recipientAddress ?? swapParams.userAddress);
-    if (userSOLBalance !== undefined) {
-      console.log("[API /quotes] userSOLBalance (lamports) provided");
-    }
-    if (userSolanaUSDCBalance !== undefined) {
-      console.log("[API /quotes] userSolanaUSDCBalance (raw) provided");
-    }
-
     const result = await getQuotes(swapParams, undefined, userSOLBalance, userSolanaUSDCBalance);
-
-    console.log("[API /quotes] Result quotes count:", result.quotes.length, "best:", result.best?.provider ?? null);
 
     return NextResponse.json({
       success: true,

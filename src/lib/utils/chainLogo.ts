@@ -37,16 +37,3 @@ export function getChainIcon(chainId: number): string {
   
   return icons[chainId] ?? '🔗';
 }
-
-/**
- * Get chain logo URL (for future use with actual logo images).
- * Currently returns null - can be extended to use ChainList or other sources.
- * 
- * @param chainId - Chain ID
- * @returns Logo URL or null
- */
-export function getChainLogoUrl(chainId: number): string | null {
-  // Future: Can use ChainList API or other sources
-  // Example: https://chainlist.org/chain/{chainId}
-  return null;
-}

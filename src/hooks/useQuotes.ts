@@ -18,19 +18,6 @@ async function fetchQuotes(
   if (balances?.userSolanaUSDCBalance !== undefined && balances.userSolanaUSDCBalance !== "") {
     body.userSolanaUSDCBalance = balances.userSolanaUSDCBalance;
   }
-  console.log("[Quotes] Request params:", {
-    originChainId: params.originChainId,
-    destinationChainId: params.destinationChainId,
-    originToken: params.originToken,
-    destinationToken: params.destinationToken,
-    amount: params.amount,
-    userAddress: params.userAddress,
-    recipientAddress: params.recipientAddress,
-    destinationAddressUsed: destinationAddress,
-    tradeType: params.tradeType,
-    userSOLBalanceProvided: balances?.userSOLBalance != null,
-    userSolanaUSDCBalanceProvided: balances?.userSolanaUSDCBalance != null,
-  });
 
   const res = await fetch("/api/quotes", {
     method: "POST",
@@ -62,9 +49,6 @@ async function fetchQuotes(
   }
 
   const data = json.data as QuotesResult;
-  console.log("[Quotes] Success – both quotes:", data.quotes);
-  console.log("[Quotes] Best quote:", data.best);
-  console.log("[Quotes] Destination address (recipient):", destinationAddress);
   return data;
 }
 

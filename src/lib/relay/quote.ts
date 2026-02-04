@@ -345,8 +345,6 @@ export async function getRelayQuote(
     body.appFees = params.appFees;
   }
 
-  console.log("[Relay] POST", url, "body:", JSON.stringify(body, null, 2));
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);
 
@@ -380,7 +378,6 @@ export async function getRelayQuote(
     }
 
     const data = (await res.json()) as RelayQuoteResponse;
-    console.log("[Relay] Success, steps:", data.steps?.length ?? 0, "details:", !!data.details);
     const expiryAt = Date.now() + QUOTE_VALIDITY_MS;
 
     const fees = data.fees;

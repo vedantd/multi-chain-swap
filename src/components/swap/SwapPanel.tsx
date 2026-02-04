@@ -703,7 +703,6 @@ export function SwapPanel() {
     if (typeof window === "undefined") return;
 
     if (fetchingRef.current) {
-      console.log("[EVM] fetchEvmAddress skipped: already fetching");
       return;
     }
     fetchingRef.current = true;
@@ -734,20 +733,6 @@ export function SwapPanel() {
       ? (providersArray as Array<{ isPhantom?: boolean; request?: (args: { method: string }) => Promise<unknown> }>).find((p) => (p as { isPhantom?: boolean }).isPhantom)
       : undefined;
 
-    console.log("[EVM] fetchEvmAddress started", {
-      connectedSolanaWallet: rawWalletName,
-      connectedWalletNameLower: connectedWalletName || "(empty)",
-      hasPhantomEthereum,
-      hasStandardEthereum,
-      windowEthereumIsPhantom: standardIsPhantom,
-      windowEthereumIsMetaMask: standardIsMetaMask,
-      sameProvider: win.phantom?.ethereum === win.ethereum,
-      hasProvidersArray,
-      providersCount: hasProvidersArray ? providersArray.length : 0,
-      foundMetaMaskInProviders: !!metamaskFromProviders,
-      foundPhantomInProviders: !!phantomFromProviders,
-    });
-
     // Use only the provider that matches the connected Solana wallet.
     // When both Phantom and MetaMask are installed, window.ethereum is often overwritten (e.g. by Phantom).
     // Use window.phantom.ethereum for Phantom; for MetaMask try window.ethereum.providers (EIP-5740) or window.ethereum.
@@ -762,7 +747,6 @@ export function SwapPanel() {
       if (standardIsPhantom && metamaskFromProviders?.request) {
         ethereum = metamaskFromProviders as EthereumProvider;
         providerSource = "window.ethereum.providers[MetaMask] (window.ethereum was Phantom)";
-        console.log("[EVM] using MetaMask from window.ethereum.providers");
       } else if (!standardIsPhantom && hasStandardEthereum) {
         ethereum = win.ethereum!;
         providerSource = "window.ethereum (Solana wallet is MetaMask)";
@@ -784,8 +768,6 @@ export function SwapPanel() {
       providerSource = "(none)";
     }
 
-    console.log("[EVM] provider selected", { providerSource, willCallRequest: !!ethereum?.request });
-
     const timeoutId = setTimeout(() => {
       console.warn("[EVM] fetchEvmAddress timed out");
       setEvmAddressError("Request timed out. Please try again or enter address manually.");
@@ -803,7 +785,6 @@ export function SwapPanel() {
         return;
       }
 
-      console.log("[EVM] calling eth_requestAccounts on", providerSource);
       const requested = await Promise.race([
         ethereum.request({ method: "eth_requestAccounts" }),
         new Promise<never>((_, reject) =>
@@ -817,24 +798,12 @@ export function SwapPanel() {
       const first = finalAccounts[0];
 
       const phantomSameAsWindow = win.phantom?.ethereum === win.ethereum;
-      console.log("[EVM] eth_requestAccounts result", {
-        providerSource,
-        accountCount: finalAccounts.length,
-        firstAccount: first ?? "(none)",
-        allAccounts: finalAccounts,
-        phantomEthereumSameObjectAsWindowEthereum: phantomSameAsWindow,
-        note: phantomSameAsWindow
-          ? "phantom.ethereum and window.ethereum are the same object — both return the same address"
-          : "phantom.ethereum and window.ethereum are different objects",
-      });
 
       if (typeof first === "string" && first.startsWith("0x") && first.length === 42) {
         setDestinationAddressOverride(first);
         setEvmAddressError(null);
-        console.log("[EVM] set destination address", first);
       } else if (finalAccounts.length === 0) {
         setEvmAddressError("No accounts found. Connect your EVM wallet or enter address manually.");
-        console.log("[EVM] no accounts returned");
       } else {
         setEvmAddressError("Invalid address from wallet.");
         console.warn("[EVM] invalid first account", first);
@@ -1000,13 +969,6 @@ export function SwapPanel() {
   // Debug: log whenever destination address state or computed recipient changes
   useEffect(() => {
     if (!destIsEvm) return;
-    console.log("[EVM] state", {
-      destinationAddressOverride: destinationAddressOverride || "(empty)",
-      evmAddressValid,
-      recipientAddress: recipientAddress ? recipientAddress.slice(0, 10) + "…" : "(empty)",
-      publicKey: publicKey?.toBase58()?.slice(0, 8) + "…",
-      walletName: wallet?.adapter?.name ?? "(unknown)",
-    });
   }, [destIsEvm, destinationAddressOverride, evmAddressValid, recipientAddress, publicKey, wallet?.adapter?.name]);
 
   // When Solana wallet disconnects or changes: clear destination, quote, and params
@@ -1014,7 +976,6 @@ export function SwapPanel() {
   useEffect(() => {
     const pk = publicKey?.toBase58() ?? null;
     if (!publicKey) {
-      console.log("[EVM] effect wallet-change: no publicKey, clearing destination/quote/params");
       setDestinationAddressOverride("");
       setEvmAddressError(null);
       setSelectedQuote(null);
@@ -1026,11 +987,6 @@ export function SwapPanel() {
       return;
     }
 
-    console.log("[EVM] effect wallet-change: publicKey changed, clearing and scheduling refetch", {
-      publicKey: pk,
-      destIsEvm,
-      walletName: wallet?.adapter?.name ?? "(unknown)",
-    });
     setSelectedQuote(null);
     setParams(null);
     setDestinationAddressOverride("");
@@ -1042,7 +998,6 @@ export function SwapPanel() {
 
     if (destIsEvm) {
       const timer = setTimeout(() => {
-        console.log("[EVM] effect wallet-change: calling fetchEvmAddress after 350ms");
         fetchEvmAddress();
         walletChangeClearedAtRef.current = null;
       }, 350);
@@ -1057,25 +1012,16 @@ export function SwapPanel() {
     const skipDueToWalletChange = clearedAt != null && Date.now() - clearedAt < 450;
     if (!destIsEvm || !publicKey) return;
     if (fetchingRef.current) {
-      console.log("[EVM] effect fetch-when-empty: skip (already fetching)");
       return;
     }
     if (destinationAddressOverride && evmAddressValid) {
-      console.log("[EVM] effect fetch-when-empty: skip (already have valid address)", { destinationAddressOverride: destinationAddressOverride.slice(0, 10) + "…" });
       return;
     }
     if (skipDueToWalletChange) {
-      console.log("[EVM] effect fetch-when-empty: skip (just cleared for wallet change, wallet-change effect will refetch)");
       return;
     }
 
-    console.log("[EVM] effect fetch-when-empty: scheduling fetchEvmAddress in 250ms", {
-      destinationAddressOverride: destinationAddressOverride ? destinationAddressOverride.slice(0, 10) + "…" : "(empty)",
-      evmAddressValid,
-      walletName: wallet?.adapter?.name ?? "(unknown)",
-    });
     const timer = setTimeout(() => {
-      console.log("[EVM] effect fetch-when-empty: calling fetchEvmAddress now");
       fetchEvmAddress();
     }, 250);
     return () => clearTimeout(timer);
@@ -1204,7 +1150,6 @@ export function SwapPanel() {
     const handleAccountsChanged = (accounts: unknown) => {
       const arr = Array.isArray(accounts) ? accounts : [];
       const first = arr[0];
-      console.log("[EVM] accountsChanged", { accounts: arr, first, listenerFor: name.includes("phantom") ? "Phantom" : "MetaMask/other" });
       if (typeof first === "string" && first.startsWith("0x") && first.length === 42) {
         setDestinationAddressOverride(first);
         setEvmAddressError(null);
@@ -1446,18 +1391,8 @@ export function SwapPanel() {
       const isSufficient = available >= required;
       
       if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-        console.log('[Balance Check]', {
-          rawAmount,
-          userSourceTokenBalance,
-          required: required.toString(),
-          available: available.toString(),
-          isSufficient,
-          originToken: selectedOriginToken?.symbol,
-          relayerFeeCurrency,
-          relayerFee: relayerFeeAmount,
-          relayerFeeAdded: relayerFeeCurrency && sourceTokenSymbol && 
-            relayerFeeCurrency.toUpperCase() === sourceTokenSymbol.toUpperCase(),
-        });
+        // Balance check logging removed
+        
       }
       return isSufficient;
     } catch (error) {
@@ -1491,14 +1426,6 @@ export function SwapPanel() {
     }
     // Show insufficient funds if balance is loaded and insufficient
     const result = !hasSufficientSourceToken;
-    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-      console.log('[Insufficient Funds Check]', {
-        rawAmount,
-        userSourceTokenBalance,
-        hasSufficientSourceToken,
-        insufficientSourceToken: result,
-      });
-    }
     return result;
   }, [rawAmount, userSourceTokenBalance, hasSufficientSourceToken]);
 
@@ -1627,7 +1554,6 @@ export function SwapPanel() {
                 ],
               });
             });
-            console.log("deBridge tx sent:", hash);
             const txHash = String(hash);
             setTransactionSignature(txHash);
             
@@ -1640,7 +1566,6 @@ export function SwapPanel() {
                 null,
                 debridgeOrderId
               );
-              console.log("[Swap History] Created deBridge swap record:", swapRecord.id);
               
               // Update status to confirmed
               updateSwapStatus({
@@ -1660,8 +1585,7 @@ export function SwapPanel() {
             setExecuteError(getUserFriendlyErrorMessage(err, { transactionType: "swap", provider: "debridge" }));
           }
         } else {
-          setExecuteError("EVM wallet required for deBridge execution. Raw tx logged to console.");
-          console.log("deBridge raw tx (EVM):", raw.tx);
+          setExecuteError("EVM wallet required for deBridge execution.");
         }
       } else if (quoteToExecute.provider === "relay" && raw?.steps) {
         const steps = raw.steps as Array<{ kind?: string; items?: Array<{ data?: Record<string, unknown> }> }>;
@@ -1682,7 +1606,6 @@ export function SwapPanel() {
               return await sendTransaction(tx, connection, { skipPreflight: false });
             });
             
-            console.log("Relay Solana tx sent:", sig);
             setTransactionSignature(sig);
             
             // Create swap history record
@@ -1696,7 +1619,6 @@ export function SwapPanel() {
                 null
               );
               swapRecordId = swapRecord.id;
-              console.log("[Swap History] Created Relay swap record:", swapRecord.id);
             } catch (historyErr) {
               console.error("[Swap History] Failed to create swap record:", historyErr);
               // Don't block transaction execution if history fails
@@ -1738,17 +1660,11 @@ export function SwapPanel() {
             // This tracks the full bridge lifecycle: waiting -> pending -> success/failure/refund
             if (relayRequestId && swapRecordId) {
               try {
-                console.log("[Relay Bridge] Starting bridge status monitoring for requestId:", relayRequestId);
                 setTransactionStatus("pending"); // Show pending while monitoring bridge
                 
                 // Poll bridge status (monitors destination chain fulfillment)
                 const bridgeStatus = await pollRelayBridgeStatus(relayRequestId);
                 const swapStatus = mapRelayStatusToSwapStatus(bridgeStatus.status);
-                
-                console.log("[Relay Bridge] Bridge status:", bridgeStatus.status, {
-                  originTxHashes: bridgeStatus.inTxHashes,
-                  destinationTxHashes: bridgeStatus.txHashes,
-                });
                 
                 // Update swap history with bridge status and destination transaction hash
                 if (swapRecordId) {
@@ -2010,15 +1926,6 @@ export function SwapPanel() {
                     expectedOutNum > BigInt(0) &&
                     Number.isFinite(expectedOutFormattedNum) &&
                     expectedOutFormattedNum >= 0;
-                  console.log("[SwapPanel] quote display:", {
-                    provider: q.provider,
-                    expectedOut: q.expectedOut,
-                    expectedOutFormatted: q.expectedOutFormatted,
-                    effectiveReceiveRaw: String(effectiveReceive),
-                    effectiveReceiveFormatted,
-                    feeCurrency: q.feeCurrency,
-                    useRatio,
-                  });
                 }
 
                 const isGasless = !!q.gasless;
@@ -2137,17 +2044,6 @@ export function SwapPanel() {
               {(() => {
                 if (rawAmount === "0" || !rawAmount || isLoading) {
                   return null;
-                }
-                if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-                  console.log('[Button Visibility Check]', {
-                    rawAmount,
-                    isLoading,
-                    insufficientSourceToken,
-                    canExecute,
-                    best: !!best,
-                    hasSufficientSourceToken,
-                    userSourceTokenBalance,
-                  });
                 }
                 if (insufficientSourceToken) {
                   return (

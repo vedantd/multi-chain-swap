@@ -102,8 +102,6 @@ export async function getDebridgeQuote(
   searchParams.set("prependOperatingExpenses", "true");
 
   const url = `${path}?${searchParams.toString()}`;
-  console.log("[deBridge] GET url (copy for curl):", url);
-  console.log("[deBridge] Params: srcChainId, dstChainId, senderAddress, dstChainTokenOutRecipient:", params.originChainId, params.destinationChainId, params.userAddress, params.recipientAddress ?? params.userAddress);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20_000);
@@ -137,7 +135,6 @@ export async function getDebridgeQuote(
     }
 
     const data = (await res.json()) as DebridgeCreateTxResponse;
-    console.log("[deBridge] Success, orderId:", data.orderId ?? "n/a", "estimation:", !!data.estimation);
     const expiryAt = Date.now() + QUOTE_VALIDITY_MS;
 
     const estimation = data.estimation as {
@@ -160,15 +157,6 @@ export async function getDebridgeQuote(
             ? String(order.takeOffer.amount)
             : "0";
 
-    console.log("[deBridge] quote formatting | raw from API:", {
-      dstChainTokenOutAmount: dstTokenOut?.amount,
-      dstChainTokenOutDecimals: dstTokenOut?.decimals,
-      takeAmount: estimation?.takeAmount,
-      takeAmountFormatted: estimation?.takeAmountFormatted,
-      expectedOutSource: dstTokenOut?.amount != null ? "dstChainTokenOut.amount" : estimation?.takeAmount != null ? "takeAmount" : "order.takeOffer.amount",
-      expectedOut,
-    });
-
     // Prefer API's human-readable takeAmountFormatted when it looks sane (avoids wrong decimals).
     const apiFormatted = estimation?.takeAmountFormatted != null ? String(estimation.takeAmountFormatted).trim() : null;
     const parsedApi = apiFormatted != null ? parseFloat(apiFormatted) : NaN;
@@ -177,7 +165,6 @@ export async function getDebridgeQuote(
     let expectedOutFormatted: string;
     if (useApiFormatted && apiFormatted != null) {
       expectedOutFormatted = apiFormatted;
-      console.log("[deBridge] quote formatting | using API takeAmountFormatted:", apiFormatted, "| parsed:", parsedApi);
     } else {
       // Use API's decimals so formatted amount matches. Fallback to our config.
       let dstDecimals: number | undefined =
@@ -193,18 +180,7 @@ export async function getDebridgeQuote(
         expectedOut !== "0" && dstDecimals != null
           ? formatRawAmountWithDecimals(expectedOut, dstDecimals)
           : apiFormatted ?? expectedOut;
-      console.log("[deBridge] quote formatting | computed (API formatted rejected or missing):", {
-        apiFormatted,
-        parsedApi: Number.isFinite(parsedApi) ? parsedApi : "NaN",
-        useApiFormatted,
-        dstDecimalsFromApi: dstTokenOut?.decimals,
-        dstDecimalsUsed: dstDecimals,
-        overrideDecimalsTo18: overrideDecimals,
-        expectedOutFormatted,
-      });
     }
-
-    console.log("[deBridge] quote formatting | final expectedOut (raw):", expectedOut, "| expectedOutFormatted (UI):", expectedOutFormatted);
 
     const fixFee = data.fixFee != null ? String(data.fixFee) : "0";
     const protocolFee = data.protocolFee != null ? String(data.protocolFee) : "0";

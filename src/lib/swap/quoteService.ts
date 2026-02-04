@@ -209,7 +209,6 @@ export async function getQuotes(
   const recipient = params.recipientAddress ?? params.userAddress;
   const isSameChain = params.originChainId === params.destinationChainId;
   const askDebridge = !isSameChain;
-  console.log("[quoteService] Fetching quotes for", { originChainId: params.originChainId, destinationChainId: params.destinationChainId, destinationAddress: recipient, isSameChain, askDebridge });
 
   const relayBalanceOverrides =
     userSOLBalance != null
@@ -228,11 +227,6 @@ export async function getQuotes(
   const results = await Promise.allSettled(promises);
   const relayResult = results[0]!;
   const debridgeResult = results[1];
-
-  console.log("[quoteService] Relay result:", relayResult.status, relayResult.status === "rejected" ? (relayResult as PromiseRejectedResult).reason?.message : "ok");
-  if (askDebridge) {
-    console.log("[quoteService] deBridge result:", debridgeResult?.status ?? "n/a", debridgeResult?.status === "rejected" ? (debridgeResult as PromiseRejectedResult).reason?.message : "ok");
-  }
 
   const quotes: NormalizedQuote[] = [];
   if (relayResult.status === "fulfilled") quotes.push(relayResult.value);
