@@ -6,6 +6,7 @@
 import type { ChainToken } from "@/lib/chainConfig";
 import { toRelayChainId, TOKENS_BY_CHAIN } from "@/lib/chainConfig";
 import { SUPPORTED_TOKENS_STALE_TIME_MS } from "@/lib/constants";
+import { normalizeTokenAddress } from "@/lib/utils/address";
 
 const SUPPORTED_TOKENS_CACHE_MS = SUPPORTED_TOKENS_STALE_TIME_MS;
 const CACHE_MS = 5 * 60 * 1000; // 5 minutes
@@ -13,12 +14,6 @@ const RELAY_CURRENCIES_URL = "https://api.relay.link/currencies/v2";
 const DEBRIDGE_TOKEN_LIST_URL = "https://dln.debridge.finance/v1.0/token-list";
 
 const cache = new Map<number, { tokens: ChainToken[]; at: number }>();
-
-function normalizeAddress(chainId: number, address: string): string {
-  // EVM: lowercase for consistent dedupe
-  if (address.startsWith("0x")) return address.toLowerCase();
-  return address;
-}
 
 /** Fetch currencies for a chain from Relay (verified, default list, limit 100). */
 async function fetchRelayCurrencies(chainId: number): Promise<ChainToken[]> {
@@ -55,7 +50,7 @@ async function fetchRelayCurrencies(chainId: number): Promise<ChainToken[]> {
   return data
     .filter((c) => c?.address != null && c?.symbol != null)
     .map((c) => ({
-      address: normalizeAddress(chainId, c.address!),
+      address: normalizeTokenAddress(c.address!),
       symbol: String(c.symbol).trim() || "???",
       decimals: typeof c.decimals === "number" && c.decimals >= 0 ? c.decimals : 18,
     }));
@@ -78,7 +73,7 @@ async function fetchDebridgeTokens(chainId: number): Promise<ChainToken[]> {
   return Object.values(tokens)
     .filter((t) => t?.address != null && t?.symbol != null)
     .map((t) => ({
-      address: normalizeAddress(chainId, t.address!),
+      address: normalizeTokenAddress(t.address!),
       symbol: String(t.symbol).trim() || "???",
       decimals: typeof t.decimals === "number" && t.decimals >= 0 ? t.decimals : 18,
     }));
@@ -103,13 +98,9 @@ function getCanonicalAddressSet(chainId: number): Set<string> {
   if (!list?.length) return new Set();
   const set = new Set<string>();
   for (const t of list) {
-    set.add(t.address.startsWith("0x") ? t.address.toLowerCase() : t.address);
+    set.add(normalizeTokenAddress(t.address));
   }
   return set;
-}
-
-function addressKey(addr: string): string {
-  return addr.startsWith("0x") ? addr.toLowerCase() : addr;
 }
 
 /**
@@ -126,7 +117,7 @@ function dedupeBySymbol(chainId: number, tokens: ChainToken[]): ChainToken[] {
       bySymbol.set(key, t);
       continue;
     }
-    if (canonical.has(addressKey(t.address))) bySymbol.set(key, t);
+    if (canonical.has(normalizeTokenAddress(t.address))) bySymbol.set(key, t);
   }
   const out = Array.from(bySymbol.values());
   out.sort((x, y) => x.symbol.localeCompare(y.symbol, undefined, { sensitivity: "base" }));

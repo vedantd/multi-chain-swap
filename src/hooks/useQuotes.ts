@@ -96,8 +96,7 @@ export function useQuotes(
       params.amount !== "0" &&
       !!params.originToken &&
       params.destinationChainId != null &&
-      !!params.destinationToken &&
-      !options?.disableAutoRefetch,
+      !!params.destinationToken,
     staleTime: 0,
     retry: 1,
     retryDelay: 2000,

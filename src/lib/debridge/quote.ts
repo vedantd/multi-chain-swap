@@ -10,6 +10,7 @@ import {
   toDebridgeChainId,
 } from "@/lib/chainConfig";
 import { QUOTE_VALIDITY_MS } from "@/lib/constants";
+import { normalizeTokenAddress } from "@/lib/utils/address";
 import { formatRawAmountWithDecimals } from "@/lib/utils/formatting";
 
 const DEBRIDGE_API_BASE = "https://api.dln.trade";
@@ -17,10 +18,8 @@ const DEBRIDGE_API_BASE = "https://api.dln.trade";
 function getDestinationDecimals(chainId: number, tokenAddress: string): number | undefined {
   const list = TOKENS_BY_CHAIN[chainId];
   if (!list?.length) return undefined;
-  const key = tokenAddress.startsWith("0x") ? tokenAddress.toLowerCase() : tokenAddress;
-  const token = list.find(
-    (t) => (t.address.startsWith("0x") ? t.address.toLowerCase() : t.address) === key
-  );
+  const key = normalizeTokenAddress(tokenAddress);
+  const token = list.find((t) => normalizeTokenAddress(t.address) === key);
   return token?.decimals;
 }
 

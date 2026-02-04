@@ -421,78 +421,76 @@ export async function getRelayQuote(
 
     if (params.originChainId === CHAIN_ID_SOLANA && depositFeePayer) {
       gasless = true;
-      solPriceUsd = await getSolPriceInUsdc();
-      
-      // Validate solPriceUsd
-      if (!Number.isFinite(solPriceUsd) || solPriceUsd <= 0) {
-        console.error("[Relay] Invalid solPriceUsd:", solPriceUsd);
-        solPriceUsd = 150; // Fallback to reasonable default
-      }
-      
-      const tokenPrice = await getTokenPriceUsd(params.destinationToken, params.destinationChainId);
-      
-      // Validate tokenPrice
-      if (!Number.isFinite(tokenPrice) || tokenPrice <= 0) {
-        console.error("[Relay] Invalid tokenPrice:", tokenPrice, "for token:", params.destinationToken);
-        // Use fallback of 1.0 (getTokenPriceUsd already handles this, but double-check)
-      }
-      
-      const expectedOutNum = Number(expectedOut);
-      if (!Number.isFinite(expectedOutNum) || expectedOutNum < 0) {
-        throw new Error(`Invalid expectedOut: ${expectedOut}`);
-      }
-      
-      userReceivesUsd = (expectedOutNum / 10 ** destinationDecimals) * tokenPrice;
-      
-      // Validate userReceivesUsd
-      if (!Number.isFinite(userReceivesUsd) || userReceivesUsd < 0) {
-        console.error("[Relay] Invalid userReceivesUsd calculated:", userReceivesUsd, "from expectedOut:", expectedOut, "tokenPrice:", tokenPrice);
-        userReceivesUsd = 0; // Set to 0 to prevent invalid calculations
-      }
+      try {
+        solPriceUsd = await getSolPriceInUsdc();
+        if (!Number.isFinite(solPriceUsd) || solPriceUsd <= 0) {
+          console.error("[Relay] Invalid solPriceUsd:", solPriceUsd);
+          solPriceUsd = 150;
+        }
 
-      const worstCaseCosts = await calculateWorstCaseCosts(
-        params,
-        userReceivesUsd,
-        solPriceUsd,
-        connection,
-        depositFeePayer
-      );
-      // Calculate total worst-case sponsor costs in USD.
-      // Includes: gas, rent, token-2022 transfer fees, price drift buffer (2%), and failure buffer.
-      // This total is then passed to selectUserFee() which applies a 20% margin.
-      worstCaseSponsorCostUsd =
-        worstCaseCosts.gasUsd +
-        worstCaseCosts.rentUsd +
-        worstCaseCosts.tokenLossUsd +
-        worstCaseCosts.driftBufferUsd +
-        worstCaseCosts.failureBufferUsd;
+        let tokenPrice = 0;
+        try {
+          tokenPrice = await getTokenPriceUsd(params.destinationToken, params.destinationChainId);
+        } catch (e) {
+          console.warn("[Relay] getTokenPriceUsd failed, using 1:", e);
+        }
+        if (!Number.isFinite(tokenPrice) || tokenPrice <= 0) {
+          tokenPrice = 1;
+        }
 
-      const feeSelection = await selectUserFee(
-        worstCaseSponsorCostUsd,
-        params.userAddress,
-        params.destinationToken,
-        params.destinationChainId,
-        solPriceUsd,
-        connection,
-        balanceOverrides
-          ? {
-              userSolBalance: balanceOverrides.userSOLBalance,
-              userUsdcBalance: balanceOverrides.userSolanaUSDCBalance,
-            }
-          : undefined
-      );
+        const expectedOutNum = Number(expectedOut);
+        const safeExpectedOutNum = Number.isFinite(expectedOutNum) && expectedOutNum >= 0 ? expectedOutNum : 0;
+        userReceivesUsd = (safeExpectedOutNum / 10 ** destinationDecimals) * tokenPrice;
+        if (!Number.isFinite(userReceivesUsd) || userReceivesUsd < 0) {
+          userReceivesUsd = 0;
+        }
 
-      userFee = feeSelection.userFee;
-      userFeeCurrency = feeSelection.userFeeCurrency;
-      userFeeUsd = feeSelection.userFeeUsd;
-      requiresSOL = feeSelection.requiresSOL;
+        const worstCaseCosts = await calculateWorstCaseCosts(
+          params,
+          userReceivesUsd,
+          solPriceUsd,
+          connection,
+          depositFeePayer
+        );
+        worstCaseSponsorCostUsd =
+          worstCaseCosts.gasUsd +
+          worstCaseCosts.rentUsd +
+          worstCaseCosts.tokenLossUsd +
+          worstCaseCosts.driftBufferUsd +
+          worstCaseCosts.failureBufferUsd;
 
-      // Calculate userPaysUsd
-      if (feeSelection.userFeeCurrency === "USDC") {
-        userPaysUsd = feeSelection.userFeeUsd;
-      } else {
-        // SOL fee - convert to USD
-        userPaysUsd = (Number(feeSelection.userFee) / 1e9) * solPriceUsd;
+        const feeSelection = await selectUserFee(
+          worstCaseSponsorCostUsd,
+          params.userAddress,
+          params.destinationToken,
+          params.destinationChainId,
+          solPriceUsd,
+          connection,
+          balanceOverrides
+            ? {
+                userSolBalance: balanceOverrides.userSOLBalance,
+                userUsdcBalance: balanceOverrides.userSolanaUSDCBalance,
+              }
+            : undefined
+        );
+
+        userFee = feeSelection.userFee;
+        userFeeCurrency = feeSelection.userFeeCurrency;
+        userFeeUsd = feeSelection.userFeeUsd;
+        requiresSOL = feeSelection.requiresSOL;
+
+        if (feeSelection.userFeeCurrency === "USDC") {
+          userPaysUsd = feeSelection.userFeeUsd;
+        } else {
+          userPaysUsd = (Number(feeSelection.userFee) / 1e9) * solPriceUsd;
+        }
+      } catch (err) {
+        console.error("[Relay] Solana-origin fee calculation failed, using safe defaults:", err);
+        worstCaseSponsorCostUsd = 0;
+        userFeeUsd = 0;
+        userFee = "0";
+        userFeeCurrency = "USDC";
+        requiresSOL = false;
       }
     }
 

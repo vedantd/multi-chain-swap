@@ -1,14 +1,14 @@
 "use client";
 
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useWalletLifecycle } from "@/hooks/useWalletLifecycle";
 import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
 import { WalletErrorBanner } from "@/components/wallet/WalletErrorBanner";
-import { SwapPanel } from "@/components/swap/SwapPanel";
-import { prefetchChains } from "@/lib/relay/routeValidation";
+import { SwapPanel } from "@/components/swap";
+import { prefetchChains } from "@/lib/relay";
 import { typography } from "@/styles/shared.stylex";
 
 const styles = stylex.create({
@@ -122,7 +122,7 @@ const styles = stylex.create({
 
 export function HomePageClient() {
   useWalletLifecycle();
-  const { publicKey, connected, connecting, wallets } = useWallet();
+  const { publicKey, connected, connecting, wallets, select, connect } = useWallet();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -134,6 +134,13 @@ export function HomePageClient() {
 
   const hasWallets = wallets.length > 0;
   const showLanding = mounted && !connected;
+
+  const handleConnectOneClick = useCallback(() => {
+    if (wallets.length === 1) {
+      select(wallets[0]!.adapter.name);
+      connect().catch((err) => console.error("[HomePageClient] connect failed:", err));
+    }
+  }, [wallets, select, connect]);
 
   return (
     <>
@@ -149,9 +156,20 @@ export function HomePageClient() {
                 chains in one app.
               </p>
               <div className="landing-cta-wrap" {...stylex.props(styles.ctaButton)}>
-                <WalletMultiButton className="wallet-adapter-button-trigger">
-                  Connect Wallet
-                </WalletMultiButton>
+                {wallets.length === 1 ? (
+                  <button
+                    type="button"
+                    className="wallet-adapter-button-trigger"
+                    onClick={handleConnectOneClick}
+                    disabled={connecting}
+                  >
+                    {connecting ? "Connecting…" : "Connect Wallet"}
+                  </button>
+                ) : (
+                  <WalletMultiButton className="wallet-adapter-button-trigger">
+                    Connect Wallet
+                  </WalletMultiButton>
+                )}
               </div>
             </div>
             <div {...stylex.props(styles.landingVisual)}>

@@ -3,31 +3,22 @@
 // External dependencies
 import * as stylex from '@stylexjs/stylex';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDropdownBehavior } from "@/hooks/useDropdownBehavior";
 
 // Internal types
 import type { TokenOption } from "@/types/swap";
 
 // Internal components
 import { TokenLogo } from "@/components/shared/TokenLogo";
+import { sortTokensWithPopularFirst } from "@/lib/tokens/popularSort";
+import { normalizeTokenAddress } from "@/lib/utils/address";
 
 // Styles
 import { dropdown, form } from '@/styles/shared.stylex';
 
-const COMMON_SYMBOLS = new Set(["SOL", "USDC", "USDT", "ETH", "WETH", "BNB", "MATIC", "AVAX"]);
-
-function sortOptions(opts: TokenOption[]): TokenOption[] {
-  return [...opts].sort((a, b) => {
-    const aCommon = COMMON_SYMBOLS.has(a.label.toUpperCase());
-    const bCommon = COMMON_SYMBOLS.has(b.label.toUpperCase());
-    if (aCommon && !bCommon) return -1;
-    if (!aCommon && bCommon) return 1;
-    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
-  });
-}
-
 function filterOptions(opts: TokenOption[], search: string): TokenOption[] {
   const q = search.trim().toLowerCase();
-  if (!q) return sortOptions(opts);
+  if (!q) return sortTokensWithPopularFirst(opts);
   return opts.filter(
     (o) =>
       o.label.toLowerCase().includes(q) ||
@@ -255,7 +246,6 @@ export function TokenSelect({
   chainBadgeUrl,
   "data-testid": testId,
 }: TokenSelectProps) {
-  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
@@ -263,49 +253,23 @@ export function TokenSelect({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
-  const norm = (v: string) => (v.startsWith("0x") ? v.toLowerCase() : v);
-  const selected = options.find((o) => norm(o.value) === norm(value));
+  const { isOpen, open: openDropdown, close, toggle } = useDropdownBehavior({
+    onClose: () => setSearch(""),
+  });
+
+  const selected = options.find((o) => normalizeTokenAddress(o.value) === normalizeTokenAddress(value));
   const displayLabel = selected?.label ?? placeholder;
 
   const filtered = useMemo(() => filterOptions(options, search), [options, search]);
 
-  const close = useCallback(() => {
-    setOpen(false);
-    setSearch("");
-  }, []);
-
   useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open, close]);
-
-
-  // Prevent body scroll when modal is open
-  useEffect(() => {
-    if (open) {
-      const originalStyle = window.getComputedStyle(document.body).overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = originalStyle;
-      };
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (open) {
+    if (isOpen) {
       setSearch("");
       setHighlightIndex(0);
       const t = setTimeout(() => searchInputRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
-  }, [open]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -335,20 +299,20 @@ export function TokenSelect({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, close, filtered, highlightIndex, onChange]);
+  }, [isOpen, close, filtered, highlightIndex, onChange]);
 
   useEffect(() => {
-    if (open && filtered.length) {
+    if (isOpen && filtered.length) {
       const idx = filtered.findIndex((o) => o.value === value);
       setHighlightIndex(idx >= 0 ? idx : 0);
     }
-  }, [open, value, filtered]);
+  }, [isOpen, value, filtered]);
 
   useEffect(() => {
     if (!open || !listRef.current || filtered.length === 0) return;
     const el = listRef.current.children[highlightIndex] as HTMLElement | undefined;
     el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [open, highlightIndex, filtered.length]);
+  }, [isOpen, highlightIndex, filtered.length]);
 
   return (
     <div ref={containerRef} {...stylex.props(styles.container)}>
@@ -361,9 +325,9 @@ export function TokenSelect({
         type="button"
         data-testid={testId}
         disabled={disabled}
-        onClick={() => !disabled && setOpen((o) => !o)}
+        onClick={() => !disabled && toggle()}
         aria-haspopup="listbox"
-        aria-expanded={open}
+        aria-expanded={isOpen}
         aria-label={label ? `${label}: ${displayLabel}` : displayLabel}
         {...stylex.props(
           styles.trigger,
@@ -396,11 +360,11 @@ export function TokenSelect({
           </span>
         </div>
         <span
-          {...stylex.props(styles.arrow, open && styles.arrowOpen)}
+          {...stylex.props(styles.arrow, isOpen && styles.arrowOpen)}
           aria-hidden
         />
       </button>
-      {open && (
+      {isOpen && (
         <div 
           {...stylex.props(styles.backdrop)}
           onClick={close}
@@ -451,7 +415,7 @@ export function TokenSelect({
                   </li>
                 ) : (
                   filtered.map((opt, i) => {
-                    const isSelected = norm(opt.value) === norm(value);
+                    const isSelected = normalizeTokenAddress(opt.value) === normalizeTokenAddress(value);
                     return (
                       <li
                         key={opt.value}

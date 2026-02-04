@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import type { SwapParams } from "@/types/swap";
 
 // Internal utilities/lib functions
-import { getQuotes, NeedSolForGasError } from "@/lib/swap/quoteService";
+import { getQuotes, NeedSolForGasError } from "@/lib/swap";
 
 export async function POST(request: Request) {
   try {

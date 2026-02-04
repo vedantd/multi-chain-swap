@@ -1,6 +1,15 @@
 import type { Connection } from "@solana/web3.js";
+import type { SwapTransactionStatus } from "@/types/swap";
 
 export type TransactionStatus = "pending" | "confirmed" | "finalized" | "failed";
+
+/**
+ * Map Solana transaction status to swap history status.
+ * TransactionStatus is a subset of SwapTransactionStatus (same four values).
+ */
+export function toSwapTransactionStatus(s: TransactionStatus): SwapTransactionStatus {
+  return s;
+}
 
 export interface TransactionStatusResult {
   status: TransactionStatus;

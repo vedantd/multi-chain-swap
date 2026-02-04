@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getSwapById } from "@/lib/swap/history";
+import { getSwapById } from "@/lib/swap";
 
 export async function GET(
   request: NextRequest,

@@ -1,6 +1,6 @@
 /**
  * Swap History Service (Mock/In-Memory)
- * 
+ *
  * In-memory storage for swap transaction history.
  * Uses Map-based storage that can be easily replaced with Prisma later.
  */
@@ -63,9 +63,6 @@ export function createSwapRecordFromQuote(
     params.destinationChainId
   );
 
-  // Get formatted amount from store or calculate from amount
-  // For origin, we can use the amount from params (it's already user-entered)
-  // For destination, use the formatted value from quote
   const originToken = TOKENS_BY_CHAIN[params.originChainId]?.find(
     (t) => t.address.toLowerCase() === params.originToken.toLowerCase()
   );
@@ -111,16 +108,12 @@ export function createSwapRecordFromQuote(
   });
 }
 
-// In-memory storage
 const swapStore = new Map<string, SwapTransaction>();
-const userIndex = new Map<string, string[]>(); // userAddress -> swap IDs
-const txHashIndex = new Map<string, string>(); // transactionHash -> swap ID
-const requestIdIndex = new Map<string, string>(); // requestId -> swap ID (Relay)
-const orderIdIndex = new Map<string, string>(); // orderId -> swap ID (deBridge)
+const userIndex = new Map<string, string[]>();
+const txHashIndex = new Map<string, string>();
+const requestIdIndex = new Map<string, string>();
+const orderIdIndex = new Map<string, string>();
 
-/**
- * Create a new swap record when transaction is initiated
- */
 export function createSwapRecord(input: CreateSwapRecordInput): SwapTransaction {
   const now = new Date();
   const swap: SwapTransaction = {
@@ -157,36 +150,19 @@ export function createSwapRecord(input: CreateSwapRecordInput): SwapTransaction 
     metadata: input.metadata ?? null,
   };
 
-  // Store swap
   swapStore.set(swap.id, swap);
-
-  // Update indexes
-  if (!userIndex.has(swap.userAddress)) {
-    userIndex.set(swap.userAddress, []);
-  }
+  if (!userIndex.has(swap.userAddress)) userIndex.set(swap.userAddress, []);
   userIndex.get(swap.userAddress)!.push(swap.id);
-
-  if (swap.transactionHash) {
-    txHashIndex.set(swap.transactionHash, swap.id);
-  }
-  if (swap.requestId) {
-    requestIdIndex.set(swap.requestId, swap.id);
-  }
-  if (swap.orderId) {
-    orderIdIndex.set(swap.orderId, swap.id);
-  }
+  if (swap.transactionHash) txHashIndex.set(swap.transactionHash, swap.id);
+  if (swap.requestId) requestIdIndex.set(swap.requestId, swap.id);
+  if (swap.orderId) orderIdIndex.set(swap.orderId, swap.id);
 
   return swap;
 }
 
-/**
- * Update swap transaction status
- */
 export function updateSwapStatus(input: UpdateSwapStatusInput): SwapTransaction | null {
   const swap = swapStore.get(input.id);
-  if (!swap) {
-    return null;
-  }
+  if (!swap) return null;
 
   const updated: SwapTransaction = {
     ...swap,
@@ -197,101 +173,53 @@ export function updateSwapStatus(input: UpdateSwapStatusInput): SwapTransaction 
     errorMessage: input.errorMessage ?? swap.errorMessage,
     completedAt: input.completedAt ?? swap.completedAt,
   };
-
   swapStore.set(swap.id, updated);
-
-  // Update transaction hash index if changed
   if (input.transactionHash && input.transactionHash !== swap.transactionHash) {
-    if (swap.transactionHash) {
-      txHashIndex.delete(swap.transactionHash);
-    }
+    if (swap.transactionHash) txHashIndex.delete(swap.transactionHash);
     txHashIndex.set(input.transactionHash, swap.id);
   }
-
   return updated;
 }
 
-/**
- * Get swap by ID
- */
 export function getSwapById(id: string): SwapTransaction | null {
   return swapStore.get(id) ?? null;
 }
 
-/**
- * Get swap by transaction hash
- */
 export function getSwapByTransactionHash(transactionHash: string): SwapTransaction | null {
   const id = txHashIndex.get(transactionHash);
-  if (!id) return null;
-  return swapStore.get(id) ?? null;
+  return id ? swapStore.get(id) ?? null : null;
 }
 
-/**
- * Get swap by Relay requestId
- */
 export function getSwapByRequestId(requestId: string): SwapTransaction | null {
   const id = requestIdIndex.get(requestId);
-  if (!id) return null;
-  return swapStore.get(id) ?? null;
+  return id ? swapStore.get(id) ?? null : null;
 }
 
-/**
- * Get swap by deBridge orderId
- */
 export function getSwapByOrderId(orderId: string): SwapTransaction | null {
   const id = orderIdIndex.get(orderId);
-  if (!id) return null;
-  return swapStore.get(id) ?? null;
+  return id ? swapStore.get(id) ?? null : null;
 }
 
-/**
- * Get swap history for a user with pagination and filters
- */
 export function getSwapHistory(query: SwapHistoryQuery): SwapHistoryResponse {
   const swapIds = userIndex.get(query.userAddress) ?? [];
   let swaps = swapIds
     .map((id) => swapStore.get(id))
     .filter((swap): swap is SwapTransaction => swap !== undefined);
-
-  // Apply filters
-  if (query.status) {
-    swaps = swaps.filter((swap) => swap.status === query.status);
-  }
-  if (query.provider) {
-    swaps = swaps.filter((swap) => swap.provider === query.provider);
-  }
-
-  // Sort by createdAt descending (newest first)
+  if (query.status) swaps = swaps.filter((s) => s.status === query.status);
+  if (query.provider) swaps = swaps.filter((s) => s.provider === query.provider);
   swaps.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
   const total = swaps.length;
   const offset = query.offset ?? 0;
   const limit = query.limit ?? 50;
-
-  // Apply pagination
-  const paginatedSwaps = swaps.slice(offset, offset + limit);
-
-  return {
-    swaps: paginatedSwaps,
-    total,
-    limit,
-    offset,
-  };
+  return { swaps: swaps.slice(offset, offset + limit), total, limit, offset };
 }
 
-/**
- * Get all swaps (for debugging/admin purposes)
- */
 export function getAllSwaps(): SwapTransaction[] {
   return Array.from(swapStore.values()).sort(
     (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
   );
 }
 
-/**
- * Clear all swaps (for testing/reset purposes)
- */
 export function clearAllSwaps(): void {
   swapStore.clear();
   userIndex.clear();

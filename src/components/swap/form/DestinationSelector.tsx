@@ -2,47 +2,14 @@
 
 import * as stylex from '@stylexjs/stylex';
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDropdownBehavior } from "@/hooks/useDropdownBehavior";
 
 import type { DropdownOption, TokenOption } from "@/types/swap";
 import { TokenLogo } from "@/components/shared/TokenLogo";
 import { getChainIcon, getChainLogoUrl } from "@/lib/utils/chainLogo";
+import { sortTokensWithPopularFirst } from "@/lib/tokens/popularSort";
+import { normalizeTokenAddress } from "@/lib/utils/address";
 import { dropdown, form, layout } from "@/styles/shared.stylex";
-
-// Popular/common tokens that should appear first
-const POPULAR_TOKENS = new Set([
-  "USDC", "USDT", "ETH", "WETH", "BTC", "WBTC", 
-  "DAI", "MATIC", "BNB", "AVAX", "SOL", "OP", "ARB"
-]);
-
-function sortTokensWithPopularFirst(tokens: TokenOption[]): TokenOption[] {
-  const popular: TokenOption[] = [];
-  const others: TokenOption[] = [];
-  
-  tokens.forEach((token) => {
-    if (POPULAR_TOKENS.has(token.label.toUpperCase())) {
-      popular.push(token);
-    } else {
-      others.push(token);
-    }
-  });
-  
-  // Sort popular tokens by predefined order, then alphabetically
-  popular.sort((a, b) => {
-    const aUpper = a.label.toUpperCase();
-    const bUpper = b.label.toUpperCase();
-    const aIndex = Array.from(POPULAR_TOKENS).indexOf(aUpper);
-    const bIndex = Array.from(POPULAR_TOKENS).indexOf(bUpper);
-    if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
-    if (aIndex !== -1) return -1;
-    if (bIndex !== -1) return 1;
-    return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
-  });
-  
-  // Sort others alphabetically
-  others.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-  
-  return [...popular, ...others];
-}
 
 interface DestinationSelectorProps {
   destinationChainId: number;
@@ -310,7 +277,6 @@ export function DestinationSelector({
   onChangeChain,
   onChangeToken,
 }: DestinationSelectorProps) {
-  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [triggerHovered, setTriggerHovered] = useState(false);
@@ -320,13 +286,16 @@ export function DestinationSelector({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
 
+  const { isOpen, open: openDropdown, close } = useDropdownBehavior({
+    onClose: () => setSearch(""),
+  });
+
   const activeChain = destinationChainOptions.find(
     (o) => Number(o.value) === destinationChainId
   );
 
-  const norm = (v: string) => (v.startsWith("0x") ? v.toLowerCase() : v);
   const selectedToken = destinationTokenOptions.find(
-    (t) => norm(t.value) === norm(destinationToken)
+    (t) => normalizeTokenAddress(t.value) === normalizeTokenAddress(destinationToken)
   );
 
   const filteredChains = useMemo(() => {
@@ -355,43 +324,13 @@ export function DestinationSelector({
   }, [destinationTokenOptions, search]);
 
 
-  const close = useCallback(() => {
-    setOpen(false);
-    setSearch("");
-  }, []);
-
   useEffect(() => {
-    if (open) {
-      setSearch("");
+    if (isOpen) {
       setHighlightIndex(0);
       const t = setTimeout(() => searchInputRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open, close]);
-
-  // Prevent body scroll when modal is open
-  useEffect(() => {
-    if (open) {
-      const originalStyle = window.getComputedStyle(document.body).overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = originalStyle;
-      };
-    }
-  }, [open]);
-
+  }, [isOpen]);
 
   const handleSelectToken = (token: TokenOption) => {
     onChangeToken(token.value);
@@ -402,7 +341,7 @@ export function DestinationSelector({
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => openDropdown()}
         {...stylex.props(
           styles.trigger,
           triggerHovered && styles.triggerHover
@@ -440,13 +379,13 @@ export function DestinationSelector({
         <span 
           {...stylex.props(
             styles.triggerArrow,
-            open && styles.triggerArrowOpen
+            isOpen && styles.triggerArrowOpen
           )} 
           aria-hidden 
         />
       </button>
 
-      {open && (
+      {isOpen && (
         <div 
           {...stylex.props(styles.backdrop)}
           onClick={close}
@@ -544,7 +483,7 @@ export function DestinationSelector({
                     </li>
                   ) : (
                     filteredTokens.map((token, index) => {
-                      const isSelected = norm(token.value) === norm(destinationToken);
+                      const isSelected = normalizeTokenAddress(token.value) === normalizeTokenAddress(destinationToken);
                       const isHighlighted = index === highlightIndex;
                       return (
                         <li

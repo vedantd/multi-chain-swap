@@ -97,3 +97,18 @@ export function formatRawAmount(raw: string, currencySymbol: string): string {
   const decimals = DECIMALS_BY_SYMBOL[currencySymbol] ?? 6;
   return formatRawAmountWithDecimals(raw, decimals);
 }
+
+/**
+ * Format a raw amount with currency and optional USD value for display.
+ */
+export function formatAmountWithUsd(
+  amount: string,
+  currency: string,
+  priceUsd: number | null
+): string {
+  const formatted = formatRawAmount(amount, currency);
+  if (priceUsd == null || priceUsd === 0) return `${formatted} ${currency}`;
+  const usdValue = parseFloat(formatted) * priceUsd;
+  const usdFormatted = usdValue < 0.01 ? "<$0.01" : `$${usdValue.toFixed(2)}`;
+  return `${formatted} ${currency} (${usdFormatted})`;
+}

@@ -10,6 +10,7 @@
  */
 
 import { toRelayChainId } from "@/lib/chainConfig";
+import { normalizeTokenAddress } from "@/lib/utils/address";
 
 const RELAY_CHAINS_URL = "https://api.relay.link/chains";
 const CACHE_MS = 5 * 60 * 1000; // 5 minutes cache
@@ -27,10 +28,16 @@ interface RelayChain {
     supportsBridging: boolean;
   };
   erc20Currencies?: Array<{
-    id: string;
+    id?: string;
     symbol: string;
     address: string;
-    supportsBridging: boolean;
+    supportsBridging?: boolean;
+  }>;
+  featuredTokens?: Array<{
+    id?: string;
+    symbol: string;
+    address: string;
+    supportsBridging?: boolean;
   }>;
 }
 
@@ -89,25 +96,15 @@ async function fetchChains(): Promise<RelayChain[]> {
 }
 
 /**
- * Normalize token address for comparison.
- * - EVM addresses (0x...): lowercase for consistent comparison
- * - Solana addresses (base58): keep as-is (case-sensitive)
- */
-function normalizeAddress(address: string): string {
-  return address.startsWith("0x") ? address.toLowerCase() : address;
-}
-
-/**
  * Compare two addresses, handling both EVM and Solana formats.
  */
 function addressesMatch(addr1: string, addr2: string): boolean {
-  const normalized1 = normalizeAddress(addr1);
-  const normalized2 = normalizeAddress(addr2);
-  return normalized1 === normalized2;
+  return normalizeTokenAddress(addr1) === normalizeTokenAddress(addr2);
 }
 
 /**
  * Check if a token supports bridging on a chain.
+ * Uses normalizeTokenAddress for consistent comparison (EVM lowercased, Solana as-is).
  */
 function isTokenSupportedForBridging(
   chain: RelayChain,
@@ -118,9 +115,8 @@ function isTokenSupportedForBridging(
     return true;
   }
 
-  // For "Limited" support, check specific token lists
   // Check native currency
-  if (chain.currency) {
+  if (chain.currency?.address != null) {
     if (
       addressesMatch(chain.currency.address, tokenAddress) &&
       chain.currency.supportsBridging === true
@@ -132,11 +128,17 @@ function isTokenSupportedForBridging(
   // Check ERC20 currencies
   if (chain.erc20Currencies && Array.isArray(chain.erc20Currencies)) {
     for (const token of chain.erc20Currencies) {
-      if (
-        addressesMatch(token.address, tokenAddress) &&
-        token.supportsBridging === true
-      ) {
-        return true;
+      if (token.address != null && addressesMatch(token.address, tokenAddress)) {
+        if (token.supportsBridging !== false) return true;
+      }
+    }
+  }
+
+  // Check featuredTokens (e.g. Solana/SVM chains may list tokens here)
+  if (chain.featuredTokens && Array.isArray(chain.featuredTokens)) {
+    for (const token of chain.featuredTokens) {
+      if (token.address != null && addressesMatch(token.address, tokenAddress)) {
+        if (token.supportsBridging !== false) return true;
       }
     }
   }
@@ -161,6 +163,12 @@ export async function validateRelayRoute(
 ): Promise<{ isSupported: boolean; reason?: string }> {
   try {
     const chains = await fetchChains();
+    // If chains list is empty (e.g. API returned no data), allow route through so quote API can be tried
+    if (!chains || chains.length === 0) {
+      console.warn("[routeValidation] Chains list empty, allowing route through");
+      return { isSupported: true };
+    }
+
     const relayOriginChainId = toRelayChainId(originChainId);
     const relayDestinationChainId = toRelayChainId(destinationChainId);
 

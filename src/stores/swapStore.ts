@@ -12,6 +12,7 @@ import { persist } from "zustand/middleware";
 import type { NormalizedQuote, SwapParams } from "@/types/swap";
 import { CHAIN_ID_SOLANA, TOKENS_BY_CHAIN } from "@/lib/chainConfig";
 import { isEvmChain } from "@/lib/chainConfig";
+import { isValidEvmAddress } from "@/lib/utils/address";
 
 // ============================================================================
 // Store State Interface
@@ -43,6 +44,8 @@ interface SwapStoreState {
   executing: boolean;
   executeError: string | null;
   executeSuccess: string | null;
+  /** Incremented when a swap succeeds; used to trigger balance refetch without cancelling when success is dismissed */
+  balanceInvalidationCounter: number;
 
   // Price State
   prices: { sol: number | null; [currency: string]: number | null };
@@ -138,6 +141,7 @@ const initialState: SwapStoreState = {
   executing: false,
   executeError: null,
   executeSuccess: null,
+  balanceInvalidationCounter: 0,
 
   // Price State
   prices: { sol: null },
@@ -157,18 +161,18 @@ export const useSwapStore = create<SwapStore>()(
     (set, get) => ({
       ...initialState,
 
-      // Form Actions
-      setOriginToken: (token) => set({ originToken: token }),
-      setAmount: (amount) => set({ amount }),
+      // Form Actions (clear success when user changes form so banner doesn't stick)
+      setOriginToken: (token) => set({ originToken: token, executeSuccess: null }),
+      setAmount: (amount) => set({ amount, executeSuccess: null }),
       setDestinationChainId: (chainId) => {
-        set({ destinationChainId: chainId });
-        // Auto-set destination token to USDC when chain changes
         const usdc = TOKENS_BY_CHAIN[chainId]?.find((t) => t.symbol === "USDC");
-        if (usdc) {
-          set({ destinationToken: usdc.address });
-        }
+        set({
+          destinationChainId: chainId,
+          destinationToken: usdc?.address ?? get().destinationToken,
+          executeSuccess: null,
+        });
       },
-      setDestinationToken: (token) => set({ destinationToken: token }),
+      setDestinationToken: (token) => set({ destinationToken: token, executeSuccess: null }),
       setDestinationAddressOverride: (address) => set({ destinationAddressOverride: address }),
 
       // UI Actions
@@ -181,9 +185,9 @@ export const useSwapStore = create<SwapStore>()(
       setUserSourceTokenBalance: (balance) => set({ userSourceTokenBalance: balance }),
       clearBalances: () => set({ userSOLBalance: undefined, userSourceTokenBalance: undefined }),
 
-      // Quote Actions
+      // Quote Actions (clear success when user picks a different quote)
       setParams: (params) => set({ params }),
-      setSelectedQuote: (quote) => set({ selectedQuote: quote }),
+      setSelectedQuote: (quote) => set({ selectedQuote: quote, executeSuccess: null }),
       setParamsLastChangedAt: (timestamp) => set({ paramsLastChangedAt: timestamp }),
       clearQuoteState: () =>
         set({
@@ -195,7 +199,18 @@ export const useSwapStore = create<SwapStore>()(
       // Execution Actions
       setExecuting: (executing) => set({ executing }),
       setExecuteError: (error) => set({ executeError: error }),
-      setExecuteSuccess: (success) => set({ executeSuccess: success }),
+      setExecuteSuccess: (success) =>
+        set((s) => ({
+          executeSuccess: success,
+          ...(success != null
+            ? {
+                amount: "",
+                userSourceTokenBalance: undefined,
+                userSOLBalance: undefined,
+                balanceInvalidationCounter: s.balanceInvalidationCounter + 1,
+              }
+            : {}),
+        })),
       clearExecutionState: () =>
         set({
           executing: false,
@@ -261,9 +276,7 @@ export function computeSwapParams(
   }
 
   const destIsEvm = isEvmChain(state.destinationChainId);
-  const evmAddressValid =
-    !destIsEvm ||
-    (state.destinationAddressOverride.startsWith("0x") && state.destinationAddressOverride.length === 42);
+  const evmAddressValid = !destIsEvm || isValidEvmAddress(state.destinationAddressOverride);
 
   if (destIsEvm && !evmAddressValid) {
     return null;
@@ -310,9 +323,7 @@ export function computeRecipientAddress(
 ): string {
   if (!publicKey) return "";
   const destIsEvm = isEvmChain(state.destinationChainId);
-  const evmAddressValid =
-    !destIsEvm ||
-    (state.destinationAddressOverride.startsWith("0x") && state.destinationAddressOverride.length === 42);
+  const evmAddressValid = !destIsEvm || isValidEvmAddress(state.destinationAddressOverride);
   if (destIsEvm && evmAddressValid && state.destinationAddressOverride) {
     return state.destinationAddressOverride.trim();
   }
@@ -325,7 +336,5 @@ export function computeRecipientAddress(
 export function computeEvmAddressValid(state: SwapStoreState): boolean {
   const destIsEvm = isEvmChain(state.destinationChainId);
   if (!destIsEvm) return true;
-  return (
-    state.destinationAddressOverride.startsWith("0x") && state.destinationAddressOverride.length === 42
-  );
+  return isValidEvmAddress(state.destinationAddressOverride);
 }
