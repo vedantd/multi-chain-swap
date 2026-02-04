@@ -1,6 +1,6 @@
 # Multi-Chain Swap
 
-Bridge-agnostic cross-chain swap UI supporting multiple providers (Relay and deBridge). User pays fees in USDC or SOL; Solana-side costs are sponsored.
+Bridge-agnostic cross-chain swap UI supporting multiple providers (Relay and deBridge). User pays fees in USDC or SOL; Solana-side costs can be sponsored (requires Enterprise Partnership with Relay).
 
 ## Table of Contents
 
@@ -18,7 +18,8 @@ Bridge-agnostic cross-chain swap UI supporting multiple providers (Relay and deB
 - **Bridge-Agnostic**: Automatically selects the best quote from Relay and deBridge providers
 - **Token Support**: SPL tokens and Token-2022 (including transfer fees)
 - **Safety Features**: Dust detection, uncloseable account warnings, price drift protection
-- **Economic Guarantees**: All Solana-side costs are sponsored; user fees cover non-recouped costs
+- **Economic Guarantees**: User pays fees in USDC or SOL; Solana-side costs can be sponsored (requires Enterprise Partnership with Relay)
+- **Swap History**: Transaction history tracking with in-memory storage (swap details, tokens, chains, fees, provider, status)
 - **Fully Off-Chain**: No Solana programs or smart contracts required
 
 ## Tech Stack
@@ -79,6 +80,9 @@ Comprehensive documentation is available in the [`docs/`](./docs/) directory:
 
 - **[Architecture](./docs/ARCHITECTURE.md)**: System overview, component structure, data flow, and design decisions
 - **[API Reference](./docs/API.md)**: Complete API endpoint documentation with request/response formats and examples
+  - `POST /api/quotes` - Fetch quotes from Relay and deBridge
+  - `GET /api/swaps/history` - Get swap history for a user
+  - `GET /api/swaps/[id]` - Get details for a specific swap
 - **[Environment Variables](./docs/ENVIRONMENT_VARIABLES.md)**: All environment variables with usage, defaults, and security notes
 - **[Deployment Guide](./docs/DEPLOYMENT.md)**: Deployment instructions for Vercel, Docker, and self-hosted options
 
@@ -139,7 +143,9 @@ See [`e2e/README.md`](./e2e/README.md) for more details.
 All environment variables are optional with sensible defaults. For production, you may want to configure:
 
 - **`NEXT_PUBLIC_SOLANA_RPC_URL`**: Custom Solana RPC endpoint (recommended to avoid 403 errors)
-- **`RELAY_DEPOSIT_FEE_PAYER`**: Solana address for fee sponsorship (requires Enterprise Partnership)
+- **`RELAY_DEPOSIT_FEE_PAYER`**: Solana address for fee sponsorship (requires Enterprise Partnership with Relay)
+
+**Note**: In demo mode, users pay their own Solana transaction fees. Full fee sponsorship requires Enterprise Partnership with Relay. Chain ID mapping (Solana uses different IDs for Relay vs deBridge) is handled automatically by the system.
 
 See [Environment Variables Documentation](./docs/ENVIRONMENT_VARIABLES.md) for complete details.
 
