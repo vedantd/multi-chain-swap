@@ -3,7 +3,7 @@ import "./globals.css";
 import { ClientProviders } from "@/components/providers/ClientProviders";
 
 export const metadata: Metadata = {
-  title: "Multi-Chain Swap",
+  title: "Cross-chain swaps",
   description: "Bridge-agnostic cross-chain swap",
 };
 

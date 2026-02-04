@@ -1,11 +1,20 @@
 /**
  * Token Logo Utilities
  * 
- * Provides logo URLs for tokens using CoinGecko's free image CDN.
+ * Uses local logos from /public when available, then CoinGecko CDN.
  * Falls back to generic token icon if logo not found.
  */
 
-import { CHAIN_ID_ETHEREUM, CHAIN_ID_BASE, CHAIN_ID_SOLANA, CHAIN_ID_OPTIMISM, CHAIN_ID_ARBITRUM, CHAIN_ID_POLYGON, CHAIN_ID_BNB, CHAIN_ID_AVALANCHE } from "@/lib/chainConfig";
+/**
+ * Local logo paths (files in /public). Checked first for a consistent UI.
+ */
+const LOCAL_LOGO_BY_SYMBOL: Record<string, string> = {
+  ETH: "/eth.png",
+  WETH: "/eth.png",
+  SOL: "/solana.png",
+  USDC: "/usdc.png",
+  USDT: "/usdt.png",
+};
 
 /**
  * Mapping of token symbols to CoinGecko coin IDs for logo lookup.
@@ -79,34 +88,37 @@ const ADDRESS_TO_COINGECKO: Record<string, { id: string; name: string }> = {
  * @returns Logo URL or null
  */
 export function getTokenLogoUrl(tokenAddress: string, chainId?: number, tokenSymbol?: string): string | null {
+  // Prefer local logos from /public for main tokens
+  if (tokenSymbol) {
+    const symbolUpper = tokenSymbol.toUpperCase().trim();
+    const localPath = LOCAL_LOGO_BY_SYMBOL[symbolUpper];
+    if (localPath) return localPath;
+  }
+
   // Normalize EVM addresses to lowercase for lookup
   // Solana addresses are case-sensitive, so keep them as-is
-  const normalizedAddress = tokenAddress.startsWith("0x") 
-    ? tokenAddress.toLowerCase() 
+  const normalizedAddress = tokenAddress.startsWith("0x")
+    ? tokenAddress.toLowerCase()
     : tokenAddress;
-  
+
   // Try address-based lookup first (most reliable)
   let mapping = ADDRESS_TO_COINGECKO[normalizedAddress];
-  
+
   // Fallback to symbol-based lookup if address not found
   // This handles tokens from APIs that might have different addresses
   if (!mapping && tokenSymbol) {
     const symbolUpper = tokenSymbol.toUpperCase().trim();
     mapping = SYMBOL_TO_COINGECKO[symbolUpper];
   }
-  
+
   if (!mapping) {
     return null;
   }
-  
+
   // CoinGecko image URL format
   // Using 'small' size (64x64) for better performance
-  // Format: https://assets.coingecko.com/coins/images/{id}/small/{name}.png
-  // Alternative: https://coin-images.coingecko.com/coins/images/{id}/small/{name}.png
-  // Note: Some coins use capitalized filenames, component will retry if needed
-  // For USDC specifically, verified URL: https://assets.coingecko.com/coins/images/6319/small/usd-coin.png
   const url = `https://assets.coingecko.com/coins/images/${mapping.id}/small/${mapping.name}.png`;
-  
+
   return url;
 }
 

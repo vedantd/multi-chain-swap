@@ -42,6 +42,8 @@ interface TokenSelectProps {
   placeholder?: string;
   label?: string;
   disabled?: boolean;
+  /** Optional chain logo URL (e.g. /solana.png) shown in top-right of trigger for source chain */
+  chainBadgeUrl?: string;
   "data-testid"?: string;
 }
 
@@ -52,6 +54,7 @@ const styles = stylex.create({
   },
   trigger: {
     width: '100%',
+    position: 'relative',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -65,6 +68,16 @@ const styles = stylex.create({
     fontWeight: 500,
     cursor: 'pointer',
     transition: 'all 0.2s ease',
+  },
+  chainBadge: {
+    position: 'absolute',
+    top: '0.25rem',
+    right: '1.5rem',
+    width: '1rem',
+    height: '1rem',
+    borderRadius: '50%',
+    objectFit: 'cover',
+    flexShrink: 0,
   },
   triggerHover: {
     background: 'rgba(255, 255, 255, 0.08)',
@@ -231,6 +244,7 @@ export function TokenSelect({
   placeholder = "Select token",
   label,
   disabled = false,
+  chainBadgeUrl,
   "data-testid": testId,
 }: TokenSelectProps) {
   const [open, setOpen] = useState(false);
@@ -352,6 +366,14 @@ export function TokenSelect({
         onMouseEnter={() => !disabled && setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
+        {chainBadgeUrl && (
+          <img
+            src={chainBadgeUrl}
+            alt=""
+            aria-hidden
+            {...stylex.props(styles.chainBadge)}
+          />
+        )}
         <div {...stylex.props(styles.triggerContent)}>
           {selected && (
             <TokenLogo 

@@ -400,7 +400,7 @@ export function DestinationSelector({
           )}
           <span {...stylex.props(styles.triggerText)}>
             {activeChain ? activeChain.label : "Select network"}{" "}
-            {selectedToken ? `• ${selectedToken.label}` : ""}
+            {selectedToken ? ` – ${selectedToken.label}` : ""}
           </span>
         </div>
         <span 

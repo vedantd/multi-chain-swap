@@ -159,7 +159,7 @@ export function HomePageClient() {
       ) : (
         <div {...stylex.props(styles.pageContainer)}>
           <header {...stylex.props(styles.header)}>
-            <h1 {...stylex.props(typography.h1)}>Swap</h1>
+            <h1 {...stylex.props(typography.h1)}>Cross-chain swaps</h1>
             <WalletConnectButton />
           </header>
           <main>

@@ -33,7 +33,6 @@ import {
   isEvmChain,
   TOKENS_BY_CHAIN,
 } from "@/lib/chainConfig";
-import { getChainIcon } from "@/lib/utils/chainLogo";
 import {
   QUOTE_DEBOUNCE_MS,
   QUOTE_STALE_MS,
@@ -172,7 +171,7 @@ const styles = stylex.create({
   inputRow: {
     display: 'flex',
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: '0.75rem',
     paddingLeft: '0.75rem',
@@ -189,28 +188,17 @@ const styles = stylex.create({
   inputHeaderRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.5rem',
     marginBottom: '0.5rem',
     paddingLeft: '0.75rem',
     paddingRight: '0',
-  },
-  sourceNetworkIcon: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '20px',
-    height: '20px',
-    fontSize: '14px',
-    lineHeight: 1,
-    flexShrink: 0,
   },
   tokenSelectContainer: {
     flexShrink: 0,
     minWidth: '220px',
     width: '220px',
+    minHeight: '2.5rem',
     display: 'flex',
     alignItems: 'center',
-    height: '100%',
   },
   inputGroup: {
     width: '100%',
@@ -258,11 +246,16 @@ const styles = stylex.create({
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: '50%',
-    border: '1px solid var(--border)',
-    background: 'var(--muted)',
     color: 'var(--muted-foreground)',
-    fontSize: '0.75rem',
+  },
+  warningIcon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    width: '1.25rem',
+    height: '1.25rem',
+    color: 'var(--destructive)',
   },
   toSection: {
     padding: '1rem',
@@ -304,7 +297,7 @@ const styles = stylex.create({
   toAmountContent: {
     display: 'flex',
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: '0.75rem',
     paddingLeft: '0.75rem',
@@ -322,9 +315,9 @@ const styles = stylex.create({
     flexShrink: 0,
     minWidth: '220px',
     width: '220px',
+    minHeight: '2.5rem',
     display: 'flex',
     alignItems: 'center',
-    height: '100%',
   },
   receiveAmount: {
     fontSize: '2rem',
@@ -704,6 +697,7 @@ export function SwapPanel() {
   const setPrices = useSwapStore((state) => state.setPrices);
   const updateNow = useSwapStore((state) => state.updateNow);
   const clearBalances = useSwapStore((state) => state.clearBalances);
+  const resetForm = useSwapStore((state) => state.resetForm);
   const clearQuoteState = useSwapStore((state) => state.clearQuoteState);
   const clearExecutionState = useSwapStore((state) => state.clearExecutionState);
 
@@ -984,27 +978,28 @@ export function SwapPanel() {
     if (!destIsEvm) return;
   }, [destIsEvm, destinationAddressOverride, evmAddressValid, recipientAddress, publicKey, wallet?.adapter?.name]);
 
-  // When Solana wallet disconnects or changes: clear destination, quote, and params
+  // When Solana wallet disconnects or changes: reset form, clear balances, destination, quote, and params
   // so everything is refetched from the newly connected wallet (source + destination).
   useEffect(() => {
-    const pk = publicKey?.toBase58() ?? null;
     if (!publicKey) {
       setDestinationAddressOverride("");
       setEvmAddressError(null);
       setSelectedQuote(null);
       setParams(null);
       clearBalances();
+      resetForm();
       fetchingRef.current = false;
       setEvmAddressFetching(false);
       walletChangeClearedAtRef.current = null;
       return;
     }
 
+    resetForm();
+    clearBalances();
     setSelectedQuote(null);
     setParams(null);
     setDestinationAddressOverride("");
     setEvmAddressError(null);
-    setUserSourceTokenBalance(undefined);
     fetchingRef.current = false;
     setEvmAddressFetching(false);
     walletChangeClearedAtRef.current = Date.now();
@@ -1016,7 +1011,7 @@ export function SwapPanel() {
       }, 350);
       return () => clearTimeout(timer);
     }
-  }, [publicKey, destIsEvm, fetchEvmAddress]);
+  }, [publicKey, destIsEvm, fetchEvmAddress, clearBalances, resetForm]);
 
   // Fetch EVM address when destination is EVM and we don't have a valid address yet.
   // Skip if we just cleared due to wallet change (wallet-change effect will refetch with correct wallet).
@@ -1755,16 +1750,9 @@ export function SwapPanel() {
   return (
     <div {...stylex.props(styles.panelContainer)}>
       <section {...stylex.props(styles.section)}>
-        {/* From - Solana source */}
+        {/* From */}
         <div {...stylex.props(styles.inputSection)}>
           <div {...stylex.props(styles.inputHeaderRow)}>
-            <span
-              {...stylex.props(styles.sourceNetworkIcon)}
-              title="Solana network"
-              aria-hidden
-            >
-              {getChainIcon(CHAIN_ID_SOLANA)}
-            </span>
             <span {...stylex.props(styles.inputLabel)}>You pay</span>
           </div>
           <div {...stylex.props(styles.inputRow)}>
@@ -1796,13 +1784,16 @@ export function SwapPanel() {
                 value={originToken}
                 onChange={setOriginToken}
                 placeholder="Select token"
+                chainBadgeUrl="/solana.png"
               />
             </div>
           </div>
         </div>
 
         <div {...stylex.props(styles.arrowContainer)}>
-          <span {...stylex.props(styles.arrowIcon)} aria-hidden>↓</span>
+          <span {...stylex.props(styles.arrowIcon)} aria-hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '100%', height: '100%' }}><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+          </span>
         </div>
 
         {/* To */}
@@ -1851,7 +1842,9 @@ export function SwapPanel() {
               {...stylex.props(styles.warningBanner)}
               className="fade-in-animation"
             >
-              <span style={{ fontSize: '1rem', lineHeight: '1.2', flexShrink: 0 }}>⚠️</span>
+              <span {...stylex.props(styles.warningIcon)} aria-hidden>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </span>
               <div>
                 {dustWarning.isDust && (
                   <div>
