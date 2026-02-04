@@ -1,0 +1,6 @@
+runId=run-1770182286892
+timestamp=2026-02-02 (run completed; CSV has full detail)
+totalRows=150
+errors=71
+bestIsMaxEffectiveReceive=79/150
+priceSanityFAIL=2
