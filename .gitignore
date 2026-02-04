@@ -51,9 +51,10 @@ next-env.d.ts
 *.swp
 *.swo
 
-# Markdown docs (project README is committed)
+# Markdown docs (project README and docs are committed)
 *.md
 !README.md
+!docs/**/*.md
 
 # Quote accounting logs
 logs/quotes-accounting.jsonl
