@@ -1,0 +1,2 @@
+export { getWalletErrorMessage } from "./errors";
+

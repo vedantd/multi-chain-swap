@@ -41,3 +41,4 @@ export function getWalletErrorMessage(error: WalletError): string {
   }
   return "Something went wrong. Please try again.";
 }
+

@@ -1,5 +1,5 @@
 import type { NormalizedQuote, SwapParams, SwapProvider, FeePayer, TradeType } from "@/types/swap";
-import { costToUserRaw, effectiveReceiveRaw, netUserValueUsd } from "./quoteService";
+import { costToUserRaw, effectiveReceiveRaw, netUserValueUsd } from "../quoteService";
 
 export interface QuoteAccountingEntry {
   timestamp: string;
@@ -102,7 +102,10 @@ export async function logQuoteEvaluation(
   const quotesSummary = quotes
     .map((q) => {
       const eff = String(effectiveReceiveRaw(q));
-      const feeStr = q.feePayer === "sponsor" && q.userFee ? `userFee=${q.userFee} ${q.userFeeCurrency ?? ""}` : `fees=${q.fees} ${q.feeCurrency}`;
+      const feeStr =
+        q.feePayer === "sponsor" && q.userFee
+          ? `userFee=${q.userFee} ${q.userFeeCurrency ?? ""}`
+          : `fees=${q.fees} ${q.feeCurrency}`;
       const gasless = q.gasless ? " gasless" : "";
       return `${q.provider}: effectiveReceive=${eff} ${feeStr}${gasless}`;
     })
@@ -202,6 +205,6 @@ export async function logQuoteEvaluation(
     const line = JSON.stringify(entry) + "\n";
     await fs.appendFile(logPath, line, "utf8");
   } catch (err) {
-    console.error("[quoteAccounting] Failed to log quote evaluation:", err);
+    console.error("[quoteLogging] Failed to log quote evaluation:", err);
   }
 }

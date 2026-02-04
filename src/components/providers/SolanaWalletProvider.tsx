@@ -11,7 +11,7 @@ import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import { clusterApiUrl } from "@solana/web3.js";
 
 import { WalletErrorProvider } from "@/contexts/WalletErrorContext";
-import { getWalletErrorMessage } from "@/lib/walletErrors";
+import { getWalletErrorMessage } from "@/lib/wallet";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 

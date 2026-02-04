@@ -24,7 +24,7 @@ import type { NormalizedQuote, QuotesResult, SwapParams } from "@/types/swap";
 import { CHAIN_ID_SOLANA } from "@/lib/chainConfig";
 import { getDebridgeQuote } from "@/lib/debridge/quote";
 import { getRelayQuote } from "@/lib/relay/quote";
-import { logQuoteEvaluation, type QuoteEvaluationMeta } from "./quoteAccounting";
+import { logQuoteEvaluation, type QuoteEvaluationMeta } from "./logging/quoteLogger";
 
 /** Thrown when no quotes are eligible solely because user has insufficient SOL for gas. */
 export class NeedSolForGasError extends Error {
