@@ -295,6 +295,9 @@ export async function getRelayQuote(
     process.env.SPONSOR_SOLANA_ADDRESS ??
     DEFAULT_DEPOSIT_FEE_PAYER;
 
+  // Quote request body matches Relay API schema (relayapi.md lines 31-70, 285-295).
+  // Required: user, recipient, originChainId, destinationChainId, originCurrency, destinationCurrency, amount, tradeType.
+  // Solana origin: depositFeePayer (string) is set below. Optional: slippageTolerance, refundTo, referrer, topupGas, useExternalLiquidity, appFees.
   const body: Record<string, unknown> = {
     user: params.userAddress,
     recipient,

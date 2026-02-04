@@ -269,14 +269,6 @@ export function computeSwapParams(
     return null;
   }
 
-  // Check for illogical route
-  const isSameChain = state.destinationChainId === CHAIN_ID_SOLANA;
-  const isSameToken =
-    state.originToken.trim().toLowerCase() === state.destinationToken.trim().toLowerCase();
-  if (isSameChain && isSameToken) {
-    return null;
-  }
-
   const recipientAddress = destIsEvm && evmAddressValid && state.destinationAddressOverride
     ? state.destinationAddressOverride.trim()
     : publicKey;

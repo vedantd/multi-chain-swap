@@ -3,7 +3,6 @@ import type { NormalizedQuote, SwapParams } from "@/types/swap";
 import {
   getQuotes,
   hasEnoughSolForQuote,
-  isIllogicalRoute,
   minSolRequiredForQuote,
   NeedSolForGasError,
   sortByBest,
@@ -280,66 +279,8 @@ describe("minSolRequiredForQuote / hasEnoughSolForQuote", () => {
   });
 });
 
-describe("isIllogicalRoute", () => {
-  it("returns true when same chain and same token", () => {
-    expect(
-      isIllogicalRoute({
-        originChainId: 7565164,
-        destinationChainId: 7565164,
-        originToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        destinationToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        amount: "10000000",
-        userAddress: "User111",
-        tradeType: "exact_in",
-      })
-    ).toBe(true);
-  });
-
-  it("returns true when same chain and same token (case insensitive)", () => {
-    expect(
-      isIllogicalRoute({
-        originChainId: 7565164,
-        destinationChainId: 7565164,
-        originToken: "epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v",
-        destinationToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        amount: "10000000",
-        userAddress: "User111",
-        tradeType: "exact_in",
-      })
-    ).toBe(true);
-  });
-
-  it("returns false when same chain but different token", () => {
-    expect(
-      isIllogicalRoute({
-        originChainId: 7565164,
-        destinationChainId: 7565164,
-        originToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        destinationToken: "So11111111111111111111111111111111111111112",
-        amount: "10000000",
-        userAddress: "User111",
-        tradeType: "exact_in",
-      })
-    ).toBe(false);
-  });
-
-  it("returns false when cross-chain (different chain)", () => {
-    expect(
-      isIllogicalRoute({
-        originChainId: 7565164,
-        destinationChainId: 8453,
-        originToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        destinationToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        amount: "10000000",
-        userAddress: "User111",
-        tradeType: "exact_in",
-      })
-    ).toBe(false);
-  });
-});
-
 describe("getQuotes", () => {
-  it("throws for illogical route (same token on same chain)", async () => {
+  it("allows same-chain swaps (same token on same chain)", async () => {
     const params: SwapParams = {
       originChainId: 7565164,
       originToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -349,9 +290,9 @@ describe("getQuotes", () => {
       userAddress: "9aUn5swQzUTRanaaTwmszxiv89cvFwUCjEBv1vZCoT1u",
       tradeType: "exact_in",
     };
-    await expect(getQuotes(params)).rejects.toThrow("Same token on same chain");
-    const { getRelayQuote } = await import("@/lib/relay/quote");
-    expect(getRelayQuote).not.toHaveBeenCalled();
+    // Same-chain swaps are now supported (e.g., via Jupiter for Solana)
+    // This test verifies the validation no longer throws
+    await expect(getQuotes(params)).resolves.not.toThrow();
   });
 
   it("returns Relay quote with feePayer sponsor and sponsorCost set", async () => {
@@ -668,17 +609,4 @@ describe("error handling", () => {
     await expect(getQuotes(params)).rejects.toThrow("No eligible quotes available");
   });
 
-  it("throws error for illogical route (same chain and token)", async () => {
-    const params: SwapParams = {
-      originChainId: 7565164,
-      originToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      amount: "10000000",
-      destinationChainId: 7565164,
-      destinationToken: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      userAddress: "9aUn5swQzUTRanaaTwmszxiv89cvFwUCjEBv1vZCoT1u",
-      tradeType: "exact_in",
-    };
-
-    await expect(getQuotes(params)).rejects.toThrow("Same token on same chain");
-  });
 });

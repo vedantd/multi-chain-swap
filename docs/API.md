@@ -290,7 +290,7 @@ The API validates the following:
 4. **Amount**: Must be a non-zero string representing raw amount
 5. **User Address**: Must be a valid Solana address (base58)
 6. **Recipient Address**: Required for EVM destinations, must be valid EVM address (0x...)
-7. **Route Logic**: Same token on same chain is rejected
+7. **Route Logic**: Same-chain swaps are supported (e.g., SOL to SOL on Solana via Jupiter)
 
 ## Provider Behavior
 

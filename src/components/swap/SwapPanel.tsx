@@ -469,6 +469,9 @@ const styles = stylex.create({
   itemizedValueRed: {
     color: 'var(--destructive, #ef4444)',
   },
+  itemizedValueGreen: {
+    color: '#22c55e', // Green for "Free"
+  },
   itemizedValueBold: {
     fontWeight: 600,
   },
@@ -684,7 +687,7 @@ const styles = stylex.create({
 
 export function SwapPanel() {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction, wallet } = useWallet();
+  const { publicKey, sendTransaction, signTransaction, wallet } = useWallet();
 
   // Zustand store state and actions
   const originToken = useSwapStore((state) => state.originToken);
@@ -1009,7 +1012,18 @@ export function SwapPanel() {
 
   // When Solana wallet disconnects or changes: reset form, clear balances, destination, quote, and params
   // so everything is refetched from the newly connected wallet (source + destination).
+  const prevPublicKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    const prevPublicKey = prevPublicKeyRef.current;
+    const currentPublicKey = publicKey?.toBase58() ?? null;
+    
+    // Only run when wallet actually changes, not when destination chain changes
+    if (prevPublicKey === currentPublicKey) {
+      return;
+    }
+    
+    prevPublicKeyRef.current = currentPublicKey;
+    
     if (!publicKey) {
       setDestinationAddressOverride("");
       setEvmAddressError(null);
@@ -1033,14 +1047,17 @@ export function SwapPanel() {
     setEvmAddressFetching(false);
     walletChangeClearedAtRef.current = Date.now();
 
-    if (destIsEvm) {
+    // Check current destination chain (read from store, not from dependency) to decide if we need EVM address
+    const currentDestChainId = useSwapStore.getState().destinationChainId;
+    const currentDestIsEvm = isEvmChain(currentDestChainId);
+    if (currentDestIsEvm) {
       const timer = setTimeout(() => {
         fetchEvmAddress();
         walletChangeClearedAtRef.current = null;
       }, 350);
       return () => clearTimeout(timer);
     }
-  }, [publicKey, destIsEvm, fetchEvmAddress, clearBalances, resetForm]);
+  }, [publicKey, fetchEvmAddress, clearBalances, resetForm]);
 
   // Fetch EVM address when destination is EVM and we don't have a valid address yet.
   // Skip if we just cleared due to wallet change (wallet-change effect will refetch with correct wallet).
@@ -1203,10 +1220,6 @@ export function SwapPanel() {
     };
   }, [destIsEvm, wallet?.adapter?.name]);
 
-  const isSameChain = destinationChainId === ORIGIN_CHAIN_ID;
-  const isSameToken =
-    originToken.trim().toLowerCase() === destinationToken.trim().toLowerCase();
-  const isIllogicalRoute = isSameChain && isSameToken;
 
   const getBalancesForQuote = useCallback(async () => {
     if (!connection || !publicKey) return undefined;
@@ -1467,11 +1480,37 @@ export function SwapPanel() {
   }, [rawAmount, userSourceTokenBalance, hasSufficientSourceToken]);
 
   const receiveDisplay = activeQuote ? computeReceiveDisplay(activeQuote) : null;
+  
+  // Debug logging for quote display
+  useEffect(() => {
+    if (activeQuote) {
+      console.log("[SwapPanel] Active quote for display:", {
+        provider: activeQuote.provider,
+        expectedOut: activeQuote.expectedOut,
+        expectedOutFormatted: activeQuote.expectedOutFormatted,
+        feeCurrency: activeQuote.feeCurrency,
+        receiveDisplay: receiveDisplay ? {
+          effectiveReceive: receiveDisplay.effectiveReceive,
+          effectiveReceiveFormatted: receiveDisplay.effectiveReceiveFormatted,
+          estimatedOutFormatted: receiveDisplay.estimatedOutFormatted,
+          symbol: receiveDisplay.symbol,
+        } : null,
+      });
+    } else {
+      console.log("[SwapPanel] No active quote available");
+    }
+  }, [activeQuote, receiveDisplay]);
 
   const handleExecute = useCallback(async () => {
     const currentSelectedQuote = useSwapStore.getState().selectedQuote;
     const currentSwapParams = useSwapStore.getState().params;
-    if (!currentSelectedQuote || !canExecute || !sendTransaction || !connection || !currentSwapParams) return;
+    const isJupiter = currentSelectedQuote?.provider === "jupiter";
+    if (!currentSelectedQuote || !canExecute || !connection || !currentSwapParams) return;
+    if (!isJupiter && !sendTransaction) return;
+    if (isJupiter && !signTransaction) {
+      setExecuteError("Wallet does not support signing. Try a different wallet.");
+      return;
+    }
     setExecuting(true);
     setExecuteError(null);
     setExecuteSuccess(null);
@@ -1624,6 +1663,97 @@ export function SwapPanel() {
         } else {
           setExecuteError("EVM wallet required for deBridge execution.");
         }
+      } else if (quoteToExecute.provider === "jupiter" && raw?.transaction && raw?.requestId) {
+        const base64Unsigned = raw.transaction as string;
+        const requestId = String(raw.requestId);
+        try {
+          const bin = atob(base64Unsigned);
+          const buf = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+          const tx = VersionedTransaction.deserialize(buf);
+          setTransactionStatus("pending");
+          const signedTx = await signTransaction!(tx);
+          const signedBuf = signedTx.serialize();
+          const base64Signed = btoa(String.fromCharCode(...signedBuf));
+          const executeRes = await fetch("/api/jupiter/execute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ signedTransaction: base64Signed, requestId }),
+          });
+          const executeData = (await executeRes.json()) as { status?: string; signature?: string; error?: string };
+          if (!executeRes.ok) {
+            setTransactionStatus("failed");
+            setExecuteError(getUserFriendlyErrorMessage(new Error(executeData.error ?? "Jupiter execute failed"), { transactionType: "swap", provider: "jupiter" }));
+            return;
+          }
+          if (executeData.status === "Success" && executeData.signature) {
+            const sig = executeData.signature;
+            setTransactionSignature(sig);
+            setTransactionStatus("pending");
+
+            let swapRecordId: string | null = null;
+            try {
+              const swapRecord = createSwapRecordFromQuote(
+                quoteToExecute,
+                currentSwapParams,
+                sig,
+                null,
+                null
+              );
+              swapRecordId = swapRecord.id;
+            } catch (historyErr) {
+              console.error("[Swap History] Failed to create swap record:", historyErr);
+            }
+
+            // Poll Solana transaction status (same lifecycle as Relay origin tx)
+            const statusResult = await pollTransactionStatus(connection!, sig);
+
+            if (swapRecordId) {
+              try {
+                const statusMap: Record<TransactionStatus, "pending" | "confirmed" | "finalized" | "failed"> = {
+                  pending: "pending",
+                  confirmed: "confirmed",
+                  finalized: "finalized",
+                  failed: "failed",
+                };
+                updateSwapStatus({
+                  id: swapRecordId,
+                  status: statusMap[statusResult.status] ?? "pending",
+                  transactionHash: sig,
+                  errorMessage: statusResult.error ? String(statusResult.error) : null,
+                  completedAt: statusResult.status === "finalized" || statusResult.status === "confirmed" ? new Date() : null,
+                });
+              } catch (historyErr) {
+                console.error("[Swap History] Failed to update swap status:", historyErr);
+              }
+            }
+
+            setTransactionStatus(statusResult.status);
+
+            if (statusResult.status === "failed") {
+              setExecuteError(
+                getUserFriendlyErrorMessage(
+                  statusResult.error ?? new Error("Transaction failed"),
+                  { transactionType: "swap", provider: "jupiter" }
+                )
+              );
+            } else {
+              const explorerLink = `https://explorer.solana.com/tx/${sig}`;
+              const shortSig = `${sig.slice(0, 8)}...`;
+              if (statusResult.status === "finalized") {
+                setExecuteSuccess(`Swap finalized. View: ${explorerLink}`);
+              } else {
+                setExecuteSuccess(`Swap confirmed. View: ${explorerLink}`);
+              }
+            }
+          } else {
+            setTransactionStatus("failed");
+            setExecuteError(executeData.error ?? "Swap failed");
+          }
+        } catch (err) {
+          setTransactionStatus("failed");
+          setExecuteError(getUserFriendlyErrorMessage(err, { transactionType: "swap", provider: "jupiter" }));
+        }
       } else if (quoteToExecute.provider === "relay" && raw?.steps) {
         const steps = raw.steps as Array<{ kind?: string; items?: Array<{ data?: Record<string, unknown> }> }>;
         const firstStep = steps[0];
@@ -1757,8 +1887,8 @@ export function SwapPanel() {
             setExecuteError(getUserFriendlyErrorMessage(err, { transactionType: "swap", provider: "relay" }));
           }
         } else {
-          setExecuteError("Relay execution: no Solana transaction in step. Raw logged to console.");
-          console.log("Relay first step data:", firstItem?.data);
+          setTransactionStatus("failed");
+          setExecuteError("Relay did not return a transaction. Please try again or use a different route.");
         }
       } else {
         setExecuteError("Execution not implemented for this provider/chain. Check console for raw payload.");
@@ -1770,7 +1900,7 @@ export function SwapPanel() {
     } finally {
       setExecuting(false);
     }
-  }, [canExecute, connection, publicKey, sendTransaction, setExecuting, setExecuteError, setExecuteSuccess, setSelectedQuote]);
+  }, [canExecute, connection, publicKey, sendTransaction, signTransaction, setExecuting, setExecuteError, setExecuteSuccess, setSelectedQuote]);
 
   useEffect(() => {
     if (best && !selectedQuote) setSelectedQuote(best);
@@ -1929,11 +2059,6 @@ export function SwapPanel() {
               )}
             </p>
           )}
-          {isIllogicalRoute && (
-            <p {...stylex.props(styles.invalidRouteText)}>
-              Same token on same chain is not a valid swap. Choose a different destination token or chain.
-            </p>
-          )}
         </div>
 
         {/* Best quote in same interface (MetaMask-style) */}
@@ -1952,7 +2077,7 @@ export function SwapPanel() {
                         <span {...stylex.props(styles.itemizedValue)}>—</span>
                       </div>
                       <div {...stylex.props(styles.itemizedRow)}>
-                        <span {...stylex.props(styles.itemizedLabel)}>Relayer fee</span>
+                        <span {...stylex.props(styles.itemizedLabel)}>Service fee</span>
                         <span {...stylex.props(styles.itemizedValue)}>—</span>
                       </div>
                     </div>
@@ -1971,22 +2096,56 @@ export function SwapPanel() {
                 }
 
                 const isGasless = !!q.gasless;
-                const networkFeeDisplay =
-                  isGasless
-                    ? "Sponsored"
-                    : q.solanaCostToUser && q.solanaCostToUser !== "0"
-                      ? `-~${formatAmountWithUsd(q.solanaCostToUser, "SOL", prices.sol)}`
-                      : "—";
-                const relayerFeeCurrency = q.userFeeCurrency ?? q.feeCurrency ?? "USDC";
-                const relayerFeeAmount = q.userFee && q.userFee !== "0" ? q.userFee : q.fees && q.fees !== "0" ? q.fees : "0";
+                // Network fee display (SOL transaction costs)
+                let networkFeeDisplay: string;
+                if (isGasless) {
+                  networkFeeDisplay = "Sponsored";
+                } else if (q.provider === "jupiter") {
+                  // Jupiter: Show actual SOL costs if available, otherwise estimate
+                  if (q.solanaCostToUser && q.solanaCostToUser !== "0" && q.solanaCostToUser !== undefined) {
+                    const solCost = BigInt(q.solanaCostToUser);
+                    if (solCost > BigInt(0)) {
+                      networkFeeDisplay = `-~${formatAmountWithUsd(q.solanaCostToUser, "SOL", prices.sol)}`;
+                    } else {
+                      // If explicitly 0 (gasless), show sponsored
+                      networkFeeDisplay = "Sponsored";
+                    }
+                  } else {
+                    // No SOL cost info - show estimate (Jupiter swaps typically cost ~0.0003-0.0005 SOL)
+                    networkFeeDisplay = "~0.0003 SOL";
+                  }
+                } else if (q.solanaCostToUser && q.solanaCostToUser !== "0" && q.solanaCostToUser !== undefined) {
+                  // Other providers: show formatted amount if available
+                  networkFeeDisplay = `-~${formatAmountWithUsd(q.solanaCostToUser, "SOL", prices.sol)}`;
+                } else {
+                  networkFeeDisplay = "—";
+                }
+                
+                // Service fee (platform/swap fee) - for Jupiter this is the platformFee
+                const serviceFeeCurrency = q.userFeeCurrency ?? q.feeCurrency ?? "USDC";
+                // For Jupiter, userFee is the platform fee (swap fee)
+                let serviceFeeAmount = "0";
+                if (q.userFee != null && q.userFee !== "0") {
+                  serviceFeeAmount = q.userFee;
+                } else if (q.fees != null && q.fees !== "0") {
+                  serviceFeeAmount = q.fees;
+                }
+                
                 // Get price - handle SOL case (stored as "sol" lowercase)
-                const relayerFeePrice = relayerFeeCurrency === "SOL" 
+                const serviceFeePrice = serviceFeeCurrency === "SOL" 
                   ? prices.sol 
-                  : prices[relayerFeeCurrency] ?? null;
-                const relayerFeeDisplay =
-                  relayerFeeAmount !== "0"
-                    ? `-${formatAmountWithUsd(relayerFeeAmount, relayerFeeCurrency, relayerFeePrice)}`
-                    : "0";
+                  : prices[serviceFeeCurrency] ?? null;
+                
+                // Format service fee display
+                // For Jupiter, some swaps have 0 bps fees (e.g., Stable-Stable, Jupiter tokens)
+                // Show "Free" in green when fees are 0
+                const serviceFeeDisplay =
+                  serviceFeeAmount !== "0"
+                    ? `-${formatAmountWithUsd(serviceFeeAmount, serviceFeeCurrency, serviceFeePrice)}`
+                    : "Free"; // Show "Free" when no service fee
+                
+                // Determine if fee is free (for styling)
+                const isServiceFeeFree = serviceFeeAmount === "0";
 
                 return (
                   <>
@@ -1996,8 +2155,16 @@ export function SwapPanel() {
                         <span {...stylex.props(styles.itemizedValue)}>{networkFeeDisplay}</span>
                       </div>
                       <div {...stylex.props(styles.itemizedRow)}>
-                        <span {...stylex.props(styles.itemizedLabel)}>Relayer fee</span>
-                        <span {...stylex.props(styles.itemizedValueRed)}>{relayerFeeDisplay}</span>
+                        <span {...stylex.props(styles.itemizedLabel)}>Service fee</span>
+                        <span {...stylex.props(
+                          isServiceFeeFree
+                            ? styles.itemizedValueGreen
+                            : serviceFeeAmount !== "0"
+                              ? styles.itemizedValueRed
+                              : styles.itemizedValue
+                        )}>
+                          {serviceFeeDisplay}
+                        </span>
                       </div>
                       {q.priceDrift != null && q.priceDrift > 0 && (
                         <div {...stylex.props(styles.itemizedRow)}>
@@ -2010,7 +2177,7 @@ export function SwapPanel() {
                         <div {...stylex.props(styles.poweredByLogoWrap)}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={q.provider === "debridge" ? "/debridge.png" : "/relay.png"}
+                            src={q.provider === "debridge" ? "/debridge.png" : q.provider === "jupiter" ? "/jupiter.png" : "/relay.png"}
                             alt=""
                             aria-hidden
                             {...stylex.props(styles.poweredByLogo)}

@@ -1,16 +1,17 @@
 /**
  * Quote Service
- * 
+ *
  * Core service for fetching, validating, and selecting the best quotes from multiple providers.
- * 
+ *
  * Responsibilities:
- * - Fetches quotes from Relay and deBridge providers in parallel
- * - Validates quote eligibility (sponsor profitability, route logic)
- * - Sorts quotes by best value for the user (net USD value, effective receive)
- * - Applies tie-breaker logic (prefer Relay when within 0.1% of deBridge)
- * - Logs quote evaluation for analytics and debugging
- * - Handles errors gracefully (NeedSolForGasError for insufficient SOL)
- * 
+ * - Fetches quotes from Relay, deBridge, and Jupiter in parallel (Jupiter only for same-chain Solana; skip Relay for same-chain Solana).
+ * - Validates route before fetch (cross-chain only; Relay route validation).
+ * - Validates quote eligibility (sponsor profitability for Relay, route logic).
+ * - Sorts quotes by best value for the user (net USD value, effective receive).
+ * - Applies tie-breaker logic (prefer Relay when within 0.1% of deBridge; prefer Jupiter when within 0.1% for same-chain Solana).
+ * - Logs quote evaluation for analytics and debugging.
+ * - Handles errors gracefully (NeedSolForGasError for insufficient SOL).
+ *
  * The service is provider-agnostic and works with normalized quote types.
  */
 
@@ -23,6 +24,7 @@ import type { NormalizedQuote, QuotesResult, SwapParams } from "@/types/swap";
 // Internal utilities/lib functions
 import { CHAIN_ID_SOLANA } from "@/lib/chainConfig";
 import { getDebridgeQuote } from "@/lib/debridge/quote";
+import { getJupiterQuote } from "@/lib/jupiter/quote";
 import { getRelayQuote } from "@/lib/relay/quote";
 import { validateRelayRoute } from "@/lib/relay/routeValidation";
 import { logQuoteEvaluation, type QuoteEvaluationMeta } from "./logging/quoteLogger";
@@ -96,6 +98,11 @@ export function minSolRequiredForQuote(quote: NormalizedQuote): bigint | null {
   if (quote.provider === "relay" && quote.requiresSOL && quote.userFee) {
     return safeBigInt(quote.userFee);
   }
+  if (quote.provider === "jupiter" && quote.solanaCostToUser) {
+    const cost = safeBigInt(quote.solanaCostToUser);
+    if (cost == null) return null;
+    return (cost * BigInt(110)) / BigInt(100);
+  }
   return null;
 }
 
@@ -110,14 +117,6 @@ export function hasEnoughSolForQuote(quote: NormalizedQuote, userSOLBalanceLampo
   const required = minSolRequiredForQuote(quote);
   if (required == null) return true;
   return BigInt(userSOLBalanceLamports) >= required;
-}
-
-/** Returns true if the route is illogical (same chain and same token — no actual swap). */
-export function isIllogicalRoute(params: SwapParams): boolean {
-  const sameChain = params.originChainId === params.destinationChainId;
-  const sameToken =
-    params.originToken.trim().toLowerCase() === params.destinationToken.trim().toLowerCase();
-  return sameChain && sameToken;
 }
 
 /** Produces a clear reason why the best quote was chosen (for logging and JSONL). Defined before getQuotes so it is always in scope. */
@@ -187,28 +186,34 @@ export async function getQuotes(
   userSOLBalance?: string,
   userSolanaUSDCBalance?: string
 ): Promise<QuotesResult> {
-  if (isIllogicalRoute(params)) {
-    throw new Error("Same token on same chain is not a valid swap. Choose a different destination token or chain.");
-  }
-
-  // Validate route before attempting to fetch quotes (prevents wasting user time)
-  const routeValidation = await validateRelayRoute(
-    params.originChainId,
-    params.originToken,
-    params.destinationChainId,
-    params.destinationToken
-  );
-
-  if (!routeValidation.isSupported) {
-    throw new Error(
-      routeValidation.reason ??
-        "This route is not supported. Try a different token pair or chain."
-    );
-  }
-
   const recipient = params.recipientAddress ?? params.userAddress;
   const isSameChain = params.originChainId === params.destinationChainId;
+  const isSameChainSolana = isSameChain && params.originChainId === CHAIN_ID_SOLANA;
+
+  // Validate route before attempting to fetch quotes (prevents wasting user time)
+  // Skip Relay validation for same-chain Solana (Jupiter handles it, not Relay)
+  if (!isSameChainSolana) {
+    try {
+      const routeValidation = await validateRelayRoute(
+        params.originChainId,
+        params.originToken,
+        params.destinationChainId,
+        params.destinationToken
+      );
+
+      if (!routeValidation.isSupported) {
+        throw new Error(
+          routeValidation.reason ??
+            "This route is not supported. Try a different token pair or chain."
+        );
+      }
+    } catch (err) {
+      console.error("[quoteService] Route validation error:", err);
+      throw err;
+    }
+  }
   const askDebridge = !isSameChain;
+  const askRelay = !isSameChainSolana; // Skip Relay for same-chain Solana (Jupiter handles it)
 
   const relayBalanceOverrides =
     userSOLBalance != null
@@ -217,26 +222,85 @@ export async function getQuotes(
           userSolanaUSDCBalance: userSolanaUSDCBalance,
         }
       : undefined;
-  const promises: Promise<NormalizedQuote>[] = [
-    getRelayQuote(params, connection, relayBalanceOverrides),
-  ];
+  
+  // Build promises with explicit provider tracking to avoid indexing bugs
+  const providerPromises: Array<{ provider: "relay" | "debridge" | "jupiter"; promise: Promise<NormalizedQuote> }> = [];
+
+  if (askRelay) {
+    providerPromises.push({
+      provider: "relay",
+      promise: getRelayQuote(params, connection, relayBalanceOverrides),
+    });
+  }
   if (askDebridge) {
-    promises.push(getDebridgeQuote(params));
+    providerPromises.push({
+      provider: "debridge",
+      promise: getDebridgeQuote(params),
+    });
+  }
+  if (isSameChainSolana) {
+    providerPromises.push({
+      provider: "jupiter",
+      promise: getJupiterQuote(params),
+    });
   }
 
+  // Execute all promises in parallel
+  const promises = providerPromises.map((p) => p.promise);
   const results = await Promise.allSettled(promises);
-  const relayResult = results[0]!;
-  const debridgeResult = results[1];
+
+  // Map results back to providers using explicit provider tracking
+  // Build index map once for efficiency
+  const relayIndex = providerPromises.findIndex((p) => p.provider === "relay");
+  const debridgeIndex = providerPromises.findIndex((p) => p.provider === "debridge");
+  const jupiterIndex = providerPromises.findIndex((p) => p.provider === "jupiter");
+  
+  const relayResult: PromiseSettledResult<NormalizedQuote> | undefined = 
+    relayIndex >= 0 ? results[relayIndex] : undefined;
+  
+  const debridgeResult: PromiseSettledResult<NormalizedQuote> | undefined = 
+    debridgeIndex >= 0 ? results[debridgeIndex] : undefined;
+  
+  const jupiterResult: PromiseSettledResult<NormalizedQuote> | undefined = 
+    jupiterIndex >= 0 ? results[jupiterIndex] : undefined;
 
   const quotes: NormalizedQuote[] = [];
-  if (relayResult.status === "fulfilled") quotes.push(relayResult.value);
-  if (debridgeResult?.status === "fulfilled") quotes.push(debridgeResult.value);
+
+  if (relayResult?.status === "fulfilled") {
+    quotes.push(relayResult.value);
+  } else if (relayResult?.status === "rejected") {
+    console.error("[quoteService] Relay quote failed:", relayResult.reason);
+  }
+
+  if (debridgeResult?.status === "fulfilled") {
+    quotes.push(debridgeResult.value);
+  } else if (debridgeResult?.status === "rejected") {
+    console.error("[quoteService] deBridge quote failed:", debridgeResult.reason);
+  }
+
+  if (jupiterResult?.status === "fulfilled") {
+    quotes.push(jupiterResult.value);
+  } else if (jupiterResult?.status === "rejected") {
+    console.error("[quoteService] Jupiter quote failed:", jupiterResult.reason);
+  }
 
   if (quotes.length === 0) {
     const errors = [
-      relayResult.status === "rejected" ? (relayResult as PromiseRejectedResult).reason?.message : null,
+      askRelay && relayResult?.status === "rejected" ? (relayResult as PromiseRejectedResult).reason?.message : null,
       askDebridge && debridgeResult?.status === "rejected" ? (debridgeResult as PromiseRejectedResult).reason?.message : null,
+      isSameChainSolana && jupiterResult?.status === "rejected" ? (jupiterResult as PromiseRejectedResult).reason?.message : null,
     ].filter(Boolean);
+    
+    console.error("[quoteService] No quotes available:", {
+      askRelay,
+      askDebridge,
+      isSameChainSolana,
+      errors,
+      relayError: askRelay && relayResult?.status === "rejected" ? (relayResult as PromiseRejectedResult).reason : undefined,
+      debridgeError: askDebridge && debridgeResult?.status === "rejected" ? (debridgeResult as PromiseRejectedResult).reason : undefined,
+      jupiterError: isSameChainSolana && jupiterResult?.status === "rejected" ? (jupiterResult as PromiseRejectedResult).reason : undefined,
+    });
+    
     throw new Error(
       errors.length > 0
         ? `No quotes available: ${errors.join("; ")}`
@@ -359,7 +423,15 @@ export function costToUserRaw(q: NormalizedQuote): bigint {
     if (q.userFeeCurrency === "SOL") return BigInt(0);
     return q.userFee ? safeBigInt(q.userFee) ?? BigInt(0) : BigInt(0);
   }
-  // deBridge: user pays bridge fees (same currency as destination output)
+  // User pays: only subtract fee from output when fee is in same currency as destination (output token).
+  // e.g. Jupiter fee in SOL is not deducted from USDT output.
+  if (
+    q.userFeeCurrency != null &&
+    q.feeCurrency != null &&
+    q.userFeeCurrency !== q.feeCurrency
+  ) {
+    return BigInt(0);
+  }
   return safeBigInt(q.fees) ?? BigInt(0);
 }
 
@@ -505,6 +577,33 @@ export function sortByBest(
   const best = sorted[0];
   const second = sorted[1];
   if (best == null || second == null) return sorted;
+
+  const isSameChainSolana =
+    params.originChainId === CHAIN_ID_SOLANA &&
+    params.destinationChainId === CHAIN_ID_SOLANA;
+  const jupiterQuote = sorted.find((q) => q.provider === "jupiter");
+
+  // Same-chain Solana: prefer Jupiter as default when within 0.1% of best
+  if (isSameChainSolana && jupiterQuote && best.provider !== "jupiter") {
+    const bestValueUsd = netUserValueUsd(best);
+    const jupiterValueUsd = netUserValueUsd(jupiterQuote);
+    if (bestValueUsd > 0 && jupiterValueUsd > 0) {
+      const threshold = bestValueUsd * 0.001;
+      if (bestValueUsd - jupiterValueUsd <= threshold) {
+        const rest = sorted.filter((q) => q !== jupiterQuote);
+        return [jupiterQuote, ...rest];
+      }
+    }
+    const bestEff = effectiveReceiveRaw(best);
+    const jupiterEff = effectiveReceiveRaw(jupiterQuote);
+    if (bestEff > BigInt(0) && jupiterEff > BigInt(0)) {
+      const threshold = (bestEff * BigInt(CLOSE_THRESHOLD_BPS)) / BigInt(10000);
+      if (bestEff - jupiterEff <= threshold) {
+        const rest = sorted.filter((q) => q !== jupiterQuote);
+        return [jupiterQuote, ...rest];
+      }
+    }
+  }
 
   // Use USD-based comparison for tie-breaker if available
   const bestValueUsd = netUserValueUsd(best);

@@ -38,7 +38,7 @@ describe("getAtaExists", () => {
 
 describe("checkDustAndUncloseable", () => {
   const mockConnection = {
-    getMinimumBalanceForRentExempt: vi.fn(),
+    getMinimumBalanceForRentExemption: vi.fn(),
   } as unknown as Connection;
 
   beforeEach(() => {
@@ -46,7 +46,7 @@ describe("checkDustAndUncloseable", () => {
   });
 
   it("detects dust for SOL when remaining balance is below rent-exempt minimum", async () => {
-    vi.mocked(mockConnection.getMinimumBalanceForRentExempt).mockResolvedValue(890880); // ~0.00089 SOL
+    vi.mocked(mockConnection.getMinimumBalanceForRentExemption).mockResolvedValue(890880); // ~0.00089 SOL
     const result = await checkDustAndUncloseable(
       mockConnection,
       "UserSolana11111111111111111111111111111",
@@ -60,7 +60,7 @@ describe("checkDustAndUncloseable", () => {
   });
 
   it("detects dust for SPL tokens when remaining balance is below rent-exempt minimum", async () => {
-    vi.mocked(mockConnection.getMinimumBalanceForRentExempt).mockResolvedValue(2039280); // Standard token account rent
+    vi.mocked(mockConnection.getMinimumBalanceForRentExemption).mockResolvedValue(2039280); // Standard token account rent
     const result = await checkDustAndUncloseable(
       mockConnection,
       "UserSolana11111111111111111111111111111",
@@ -74,7 +74,7 @@ describe("checkDustAndUncloseable", () => {
 
   it("detects uncloseable account when balance equals rent-exempt minimum", async () => {
     const rentExemptMin = 890880;
-    vi.mocked(mockConnection.getMinimumBalanceForRentExempt).mockResolvedValue(rentExemptMin);
+    vi.mocked(mockConnection.getMinimumBalanceForRentExemption).mockResolvedValue(rentExemptMin);
     const totalBalance = String(rentExemptMin + 100000); // Start with more than minimum
     const swapAmount = "100000"; // Swap out amount that leaves exactly minimum
     const result = await checkDustAndUncloseable(
@@ -90,7 +90,7 @@ describe("checkDustAndUncloseable", () => {
   });
 
   it("returns no dust when remaining balance is above rent-exempt minimum", async () => {
-    vi.mocked(mockConnection.getMinimumBalanceForRentExempt).mockResolvedValue(890880);
+    vi.mocked(mockConnection.getMinimumBalanceForRentExemption).mockResolvedValue(890880);
     const result = await checkDustAndUncloseable(
       mockConnection,
       "UserSolana11111111111111111111111111111",
@@ -103,7 +103,7 @@ describe("checkDustAndUncloseable", () => {
   });
 
   it("returns no dust when balance is insufficient for swap", async () => {
-    vi.mocked(mockConnection.getMinimumBalanceForRentExempt).mockResolvedValue(890880);
+    vi.mocked(mockConnection.getMinimumBalanceForRentExemption).mockResolvedValue(890880);
     const result = await checkDustAndUncloseable(
       mockConnection,
       "UserSolana11111111111111111111111111111",
@@ -117,7 +117,7 @@ describe("checkDustAndUncloseable", () => {
   });
 
   it("handles errors gracefully", async () => {
-    vi.mocked(mockConnection.getMinimumBalanceForRentExempt).mockRejectedValue(new Error("RPC error"));
+    vi.mocked(mockConnection.getMinimumBalanceForRentExemption).mockRejectedValue(new Error("RPC error"));
     const result = await checkDustAndUncloseable(
       mockConnection,
       "UserSolana11111111111111111111111111111",

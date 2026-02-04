@@ -81,22 +81,6 @@ export async function POST(request: Request) {
           : undefined,
     };
 
-    const sameChain = swapParams.originChainId === swapParams.destinationChainId;
-    const sameToken =
-      swapParams.originToken.trim().toLowerCase() === swapParams.destinationToken.trim().toLowerCase();
-    if (sameChain && sameToken) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Same token on same chain is not a valid swap. Choose a different destination token or chain.",
-          },
-        },
-        { status: 400 }
-      );
-    }
-
     const userSOLBalance =
       typeof params.userSOLBalance === "string" && params.userSOLBalance.trim() !== ""
         ? params.userSOLBalance.trim()

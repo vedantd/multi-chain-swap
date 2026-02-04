@@ -6,7 +6,7 @@
 /** Solana chain ID in deBridge DLN API */
 export const DEBRIDGE_CHAIN_ID_SOLANA = 7565164;
 
-/** Solana chain ID in Relay API (from GET https://api.relay.link/chains; vmType "svm") */
+/** Solana chain ID in Relay API. Matches Relay chain list (GET https://api.relay.link/chains; vmType "svm"). */
 export const RELAY_CHAIN_ID_SOLANA = 792703809;
 
 /** Internal chain ID for Solana (matches deBridge; Relay gets mapped via toRelayChainId) */
@@ -41,7 +41,7 @@ export const DESTINATION_CHAIN_IDS = [...CHAIN_IDS];
 
 export type ChainId = (typeof CHAIN_IDS)[number];
 
-/** Map our internal chain ID to Relay's originChainId/destinationChainId (Relay has a separate Solana id) */
+/** Map our internal chain ID to Relay's originChainId/destinationChainId. EVM chains pass through; Solana maps to RELAY_CHAIN_ID_SOLANA (per api.relay.link/chains). */
 export function toRelayChainId(chainId: number): number {
   if (chainId === CHAIN_ID_SOLANA_INTERNAL) return RELAY_CHAIN_ID_SOLANA;
   return chainId;

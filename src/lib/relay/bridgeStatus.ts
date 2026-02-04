@@ -1,9 +1,13 @@
 /**
  * Relay Bridge Status Monitoring
- * 
- * Monitors bridge status using Relay's /intents/status endpoint.
+ *
+ * Monitors bridge status using Relay's /intents/status endpoint (relayapi.md
+ * step check.endpoint example uses /intents/status?requestId=...). If the API
+ * returns 404, Relay may have moved to /intents/status/v3—update the path and
+ * env if needed.
+ *
  * Tracks the full bridge lifecycle: waiting -> pending -> success/failure/refund
- * 
+ *
  * Based on Relay documentation:
  * https://docs.relay.link/bridging-integration-guide#monitor-bridge-status
  */
@@ -20,17 +24,52 @@ export interface RelayBridgeStatusResponse {
   error?: string;
 }
 
+/** Raw API response may use inTxs/outTxs (array of { hash?: string }) instead of inTxHashes/txHashes. */
+interface RelayStatusRawResponse {
+  status?: RelayBridgeStatus;
+  inTxHashes?: string[];
+  txHashes?: string[];
+  inTxs?: Array<{ hash?: string }>;
+  outTxs?: Array<{ hash?: string }>;
+  time?: number;
+  originChainId?: number;
+  destinationChainId?: number;
+  error?: string;
+}
+
+/**
+ * Normalize status response: Relay API may return inTxs/outTxs (objects with hash) or inTxHashes/txHashes (string arrays).
+ * We always expose inTxHashes and txHashes to the rest of the app.
+ */
+function normalizeBridgeStatusResponse(raw: RelayStatusRawResponse): RelayBridgeStatusResponse {
+  const inTxHashes =
+    raw.inTxHashes ??
+    (Array.isArray(raw.inTxs) ? raw.inTxs.map((t) => t.hash).filter((h): h is string => typeof h === "string") : undefined);
+  const txHashes =
+    raw.txHashes ??
+    (Array.isArray(raw.outTxs) ? raw.outTxs.map((t) => t.hash).filter((h): h is string => typeof h === "string") : undefined);
+  return {
+    status: raw.status ?? "pending",
+    inTxHashes,
+    txHashes,
+    time: raw.time,
+    originChainId: raw.originChainId,
+    destinationChainId: raw.destinationChainId,
+    error: raw.error,
+  };
+}
+
 /**
  * Check bridge status using Relay's /intents/status endpoint.
- * 
+ *
  * @param requestId - Relay requestId from the quote response
- * @returns Bridge status response
+ * @returns Bridge status response (normalized to inTxHashes/txHashes)
  */
 export async function checkRelayBridgeStatus(
   requestId: string
 ): Promise<RelayBridgeStatusResponse> {
   const baseUrl = process.env.RELAY_API_URL ?? "https://api.relay.link";
-  const url = `${baseUrl.replace(/\/$/, "")}/intents/status/v3?requestId=${encodeURIComponent(requestId)}`;
+  const url = `${baseUrl.replace(/\/$/, "")}/intents/status?requestId=${encodeURIComponent(requestId)}`;
 
   try {
     const res = await fetch(url, {
@@ -44,8 +83,8 @@ export async function checkRelayBridgeStatus(
       throw new Error(`Failed to check bridge status: ${res.status}`);
     }
 
-    const data = (await res.json()) as RelayBridgeStatusResponse;
-    return data;
+    const data = (await res.json()) as RelayStatusRawResponse;
+    return normalizeBridgeStatusResponse(data);
   } catch (error) {
     console.error("[bridgeStatus] Error checking bridge status:", error);
     throw error;

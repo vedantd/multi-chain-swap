@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       | "failed"
       | "completed"
       | undefined;
-    const provider = searchParams.get("provider") as "relay" | "debridge" | undefined;
+    const provider = searchParams.get("provider") as "relay" | "debridge" | "jupiter" | undefined;
 
     const result = getSwapHistory({
       userAddress,

@@ -49,7 +49,7 @@ export function getWalletErrorMessage(error: WalletError): string {
 
 export interface ErrorContext {
   transactionType?: "swap" | "approval" | "deposit";
-  provider?: "relay" | "debridge";
+  provider?: "relay" | "debridge" | "jupiter";
 }
 
 /**

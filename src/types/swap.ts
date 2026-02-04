@@ -84,7 +84,7 @@ export interface SwapParams {
   }>;
 }
 
-export type SwapProvider = "relay" | "debridge";
+export type SwapProvider = "relay" | "debridge" | "jupiter";
 
 export type FeePayer = "sponsor" | "user";
 

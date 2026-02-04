@@ -97,11 +97,25 @@ export async function checkDustAndUncloseable(
     }
     
     const remainingBalance = currentBalanceBigInt - swapAmountBigInt;
-    const dustThreshold = await calculateDustThreshold(mint, connection);
-    
-    const isDust = remainingBalance < dustThreshold;
-    const isUncloseable = remainingBalance === dustThreshold;
-    
+
+    // Dust threshold is only comparable for SOL: it's in lamports. For SPL tokens,
+    // currentBalance/swapAmount/remainingBalance are in token raw units, so we must
+    // not compare them to the rent-exempt minimum (lamports).
+    const isSol = mint === "SOL";
+    let isDust: boolean;
+    let isUncloseable: boolean;
+
+    if (isSol) {
+      const dustThreshold = await calculateDustThreshold(mint, connection);
+      isDust = remainingBalance < dustThreshold;
+      isUncloseable = remainingBalance === dustThreshold;
+    } else {
+      // For SPL tokens, balance is in token raw units. Rent-exempt minimum is in lamports,
+      // so we must not compare them. Only SOL uses the lamports dust threshold.
+      isDust = false;
+      isUncloseable = false;
+    }
+
     return {
       isDust,
       isUncloseable,

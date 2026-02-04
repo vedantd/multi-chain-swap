@@ -44,13 +44,9 @@ test.describe('Error Handling', () => {
       await solanaOption.click();
       await page.waitForTimeout(1000);
       
-      // Check for invalid route message
-      const invalidRouteVisible = await homePage.invalidRouteMessage.isVisible({ timeout: 3000 }).catch(() => false);
-      
-      if (invalidRouteVisible) {
-        await expect(homePage.invalidRouteMessage).toBeVisible();
-        await expect(homePage.invalidRouteMessage).toContainText('Same token on same chain');
-      }
+      // Same-chain swaps are now supported, so no invalid route message should appear
+      const invalidRouteVisible = await homePage.invalidRouteMessage.isVisible({ timeout: 1000 }).catch(() => false);
+      await expect(invalidRouteVisible).toBe(false);
     }
   });
 

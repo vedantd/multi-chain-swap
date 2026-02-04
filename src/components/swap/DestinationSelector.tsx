@@ -438,7 +438,7 @@ export function DestinationSelector({
               {/* Network Selection */}
               <div {...stylex.props(styles.networkSection)}>
                 <div {...stylex.props(styles.networkList)}>
-                  {destinationChainOptions.map((opt) => {
+                  {filteredChains.map((opt) => {
                     const isActive = Number(opt.value) === destinationChainId;
                     return (
                       <button
