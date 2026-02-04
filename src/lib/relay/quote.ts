@@ -246,6 +246,14 @@ export interface RelayQuoteBalanceOverrides {
 /**
  * Fetch a quote from Relay API and normalize it for the application.
  * 
+ * IMPORTANT: Quote Freshness
+ * - Quotes are revalidated when being filled - keep quotes as fresh as possible
+ * - Always re-quote before execution (see SwapPanel.tsx handleExecute)
+ * - Check quote expiry before execution
+ * 
+ * Based on Relay Bridging Integration Guide:
+ * https://docs.relay.link/bridging-integration-guide
+ * 
  * @param params - Swap parameters (chains, tokens, amounts, addresses)
  * @param connection - Optional Solana connection for balance checks and token detection
  * @param balanceOverrides - Optional balance overrides to avoid RPC calls
@@ -297,8 +305,44 @@ export async function getRelayQuote(
     amount: params.amount,
     tradeType,
   };
+  
+  // Solana-specific: depositFeePayer for Solana origin transactions
   if (params.originChainId === CHAIN_ID_SOLANA && depositFeePayer) {
     body.depositFeePayer = depositFeePayer;
+  }
+  
+  // Optional Relay quote parameters (from Bridging Integration Guide)
+  // https://docs.relay.link/bridging-integration-guide#quote-parameters
+  
+  // Slippage tolerance in basis points (e.g., "50" for 0.5%)
+  if (params.slippageTolerance != null) {
+    body.slippageTolerance = params.slippageTolerance;
+  }
+  
+  // Refund address (defaults to user address if not specified)
+  if (params.refundTo != null) {
+    body.refundTo = params.refundTo;
+  }
+  
+  // Referrer identifier for monitoring transactions (can be set via env var)
+  const referrer = params.referrer ?? process.env.RELAY_REFERRER;
+  if (referrer != null) {
+    body.referrer = referrer;
+  }
+  
+  if (params.topupGas === true) {
+    body.topupGas = true;
+    if (params.topupGasAmount != null) {
+      body.topupGasAmount = params.topupGasAmount;
+    }
+  }
+  
+  if (params.useExternalLiquidity === true) {
+    body.useExternalLiquidity = true;
+  }
+  
+  if (params.appFees != null && Array.isArray(params.appFees) && params.appFees.length > 0) {
+    body.appFees = params.appFees;
   }
 
   console.log("[Relay] POST", url, "body:", JSON.stringify(body, null, 2));
@@ -479,6 +523,8 @@ export async function getRelayQuote(
       expiryAt,
       raw: data,
       timeEstimateSeconds,
+      // Store slippage tolerance if provided (for quote tracking and re-quoting)
+      slippageTolerance: params.slippageTolerance,
     };
   } finally {
     clearTimeout(timeout);

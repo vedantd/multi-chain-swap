@@ -7,6 +7,7 @@ import { useWalletLifecycle } from "@/hooks/useWalletLifecycle";
 import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
 import { WalletErrorBanner } from "@/components/wallet/WalletErrorBanner";
 import { SwapPanel } from "@/components/swap/SwapPanel";
+import { prefetchChains } from "@/lib/relay/routeValidation";
 import { layout, typography, spacing } from '@/styles/shared.stylex';
 
 const styles = stylex.create({
@@ -56,6 +57,10 @@ export function HomePageClient() {
 
   useEffect(() => {
     setMounted(true);
+    // Prefetch chains data to warm the cache for faster route validation
+    prefetchChains().catch((err) => {
+      console.warn("[HomePageClient] Failed to prefetch chains:", err);
+    });
   }, []);
 
   const hasWallets = wallets.length > 0;

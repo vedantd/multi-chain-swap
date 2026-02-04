@@ -88,9 +88,7 @@ export class HomePage {
     return this.page.locator(Selectors.relayerFee);
   }
 
-  get minimumReceived(): Locator {
-    return this.page.locator(Selectors.minimumReceived);
-  }
+  // minimumReceived removed - doesn't exist in current UI
 
   // Action buttons
   get confirmButton(): Locator {
@@ -112,6 +110,24 @@ export class HomePage {
 
   get insufficientSolMessage(): Locator {
     return this.page.locator(Selectors.insufficientSolMessage);
+  }
+
+  // Route validation error (new)
+  get routeValidationError(): Locator {
+    return this.page.locator(Selectors.routeValidationError);
+  }
+
+  // Bridge status (new)
+  get bridgeStatusPending(): Locator {
+    return this.page.locator(Selectors.bridgeStatusPending);
+  }
+
+  get bridgeStatusSuccess(): Locator {
+    return this.page.locator(Selectors.bridgeStatusSuccess);
+  }
+
+  get quoteExpired(): Locator {
+    return this.page.locator(Selectors.quoteExpired);
   }
 
   // Helper methods

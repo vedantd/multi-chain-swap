@@ -52,6 +52,33 @@ export async function POST(request: Request) {
         typeof params.depositFeePayer === "string" && params.depositFeePayer
           ? params.depositFeePayer
           : undefined,
+      // Optional Relay quote parameters
+      slippageTolerance:
+        typeof params.slippageTolerance === "string" && params.slippageTolerance
+          ? params.slippageTolerance
+          : undefined,
+      refundTo:
+        typeof params.refundTo === "string" && params.refundTo
+          ? params.refundTo
+          : undefined,
+      referrer:
+        typeof params.referrer === "string" && params.referrer
+          ? params.referrer
+          : undefined,
+      topupGas:
+        typeof params.topupGas === "boolean" ? params.topupGas : undefined,
+      topupGasAmount:
+        typeof params.topupGasAmount === "string" && params.topupGasAmount
+          ? params.topupGasAmount
+          : undefined,
+      useExternalLiquidity:
+        typeof params.useExternalLiquidity === "boolean"
+          ? params.useExternalLiquidity
+          : undefined,
+      appFees:
+        Array.isArray(params.appFees) && params.appFees.length > 0
+          ? params.appFees
+          : undefined,
     };
 
     const sameChain = swapParams.originChainId === swapParams.destinationChainId;

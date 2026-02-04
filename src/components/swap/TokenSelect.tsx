@@ -7,6 +7,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // Internal types
 import type { TokenOption } from "@/types/swap";
 
+// Internal components
+import { TokenLogo } from "@/components/shared/TokenLogo";
+
 // Styles
 import { dropdown, form } from '@/styles/shared.stylex';
 
@@ -71,10 +74,29 @@ const styles = stylex.create({
     cursor: 'not-allowed',
     opacity: 0.6,
   },
+  triggerContent: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flex: 1,
+    minWidth: 0,
+  },
   triggerText: {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  itemContent: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    width: '100%',
+  },
+  itemText: {
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0,
+    flex: 1,
   },
   arrow: {
     flexShrink: 0,
@@ -93,65 +115,111 @@ const styles = stylex.create({
     position: 'fixed',
     inset: 0,
     background: '#000000',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignContent: 'center',
     zIndex: 1100,
     cursor: 'pointer',
     backdropFilter: 'blur(12px)',
-  },
-  menu: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: '100%',
-    marginTop: '0.25rem',
-    borderRadius: '16px',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    background: '#020617',
-    boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-    zIndex: 1101,
+    padding: '1.5rem',
     overflow: 'hidden',
   },
-  searchContainer: {
-    padding: '0.5rem',
-    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+  sheet: {
+    width: '100%',
+    maxWidth: '28rem',
+    maxHeight: 'min(calc(80vh - 3rem), calc(100vh - 3rem))',
+    height: 'auto',
     background: '#020617',
+    borderRadius: '1rem',
+    border: '2px solid rgba(255,255,255,0.1)',
+    padding: '0.75rem 1rem',
+    paddingBottom: '1rem',
+    boxShadow: '0 12px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05) inset',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    boxSizing: 'border-box',
+    position: 'relative',
+    cursor: 'default',
+  },
+  sheetHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '0.5rem',
+    flexShrink: 0,
+  },
+  sheetTitle: {
+    fontSize: '0.9375rem',
+    fontWeight: 600,
+  },
+  sheetClose: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--muted-foreground)',
+    cursor: 'pointer',
+    fontSize: '1.5rem',
+    lineHeight: 1,
+    padding: 0,
+    width: '1.5rem',
+    height: '1.5rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+    overflow: 'hidden',
+    flex: 1,
+    minHeight: 0,
+    maxHeight: '100%',
+  },
+  searchContainer: {
+    padding: '0.5rem 0',
+    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+    background: 'transparent',
+    flexShrink: 0,
   },
   searchInput: {
     width: '100%',
-    padding: '0.5rem 0.75rem',
-    borderRadius: '8px',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    background: 'rgba(255, 255, 255, 0.03)',
+    padding: '0.625rem 0.875rem',
+    borderRadius: '12px',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    background: 'rgba(255, 255, 255, 0.04)',
     color: 'var(--foreground)',
     fontSize: '0.875rem',
     boxSizing: 'border-box',
+    transition: 'all 0.15s ease',
   },
   list: {
-    maxHeight: '14rem',
+    flex: 1,
     overflowY: 'auto',
-    padding: '0.25rem',
+    padding: '0.25rem 0',
     listStyle: 'none',
     margin: 0,
-    background: '#020617',
+    background: 'transparent',
+    minHeight: 0,
   },
   item: {
-    padding: '0.5rem 0.75rem',
-    borderRadius: '8px',
+    padding: '0.75rem',
+    borderRadius: '12px',
+    border: 'none',
     cursor: 'pointer',
     color: 'var(--foreground)',
     fontSize: '0.875rem',
     fontWeight: 500,
-    background: 'rgba(255, 255, 255, 0.03)',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    marginBottom: '0.25rem',
-    transition: 'all 0.2s ease',
+    background: 'transparent',
+    marginBottom: '0.125rem',
+    transition: 'all 0.15s ease',
   },
   itemHighlighted: {
-    background: 'rgba(255, 255, 255, 0.08)',
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    background: 'rgba(255, 255, 255, 0.05)',
   },
   itemSelected: {
-    background: 'rgba(59, 130, 246, 0.1)',
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    background: 'rgba(59, 130, 246, 0.08)',
     fontWeight: 600,
   },
 });
@@ -186,16 +254,18 @@ export function TokenSelect({
 
   useEffect(() => {
     if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
         close();
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
   }, [open, close]);
 
-  // Prevent body scroll when dropdown is open
+
+  // Prevent body scroll when modal is open
   useEffect(() => {
     if (open) {
       const originalStyle = window.getComputedStyle(document.body).overflow;
@@ -282,81 +352,113 @@ export function TokenSelect({
         onMouseEnter={() => !disabled && setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        <span {...stylex.props(styles.triggerText)}>
-          {displayLabel}
-        </span>
+        <div {...stylex.props(styles.triggerContent)}>
+          {selected && (
+            <TokenLogo 
+              tokenAddress={selected.value} 
+              tokenSymbol={selected.label}
+              size={20}
+              alt={selected.label}
+            />
+          )}
+          <span {...stylex.props(styles.triggerText)}>
+            {displayLabel}
+          </span>
+        </div>
         <span
           {...stylex.props(styles.arrow, open && styles.arrowOpen)}
           aria-hidden
         />
       </button>
       {open && (
-        <>
+        <div 
+          {...stylex.props(styles.backdrop)}
+          onClick={close}
+        >
           <div 
-            {...stylex.props(styles.backdrop)}
-            onClick={close}
-          />
-          <div 
-            {...stylex.props(styles.menu)}
+            {...stylex.props(styles.sheet)}
             onClick={(e) => e.stopPropagation()}
           >
-            <div {...stylex.props(styles.searchContainer)}>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setHighlightIndex(0);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter") {
-                    e.preventDefault();
-                  }
-                }}
-                placeholder="Search by symbol or name"
-                {...stylex.props(styles.searchInput)}
-                aria-label="Search tokens"
-              />
+            <div {...stylex.props(styles.sheetHeader)}>
+              <h2 {...stylex.props(styles.sheetTitle)}>Select token</h2>
+              <button
+                type="button"
+                onClick={close}
+                aria-label="Close"
+                {...stylex.props(styles.sheetClose)}
+              >
+                ×
+              </button>
             </div>
-            <ul
-              ref={listRef}
-              role="listbox"
-              {...stylex.props(styles.list)}
-            >
-              {filtered.length === 0 ? (
-                <li {...stylex.props(dropdown.emptyState)}>
-                  No tokens match &quot;{search.trim() || "..."}&quot;
-                </li>
-              ) : (
-                filtered.map((opt, i) => (
-                  <li
-                    key={opt.value}
-                    role="option"
-                    aria-selected={opt.value === value}
-                    {...stylex.props(
-                      styles.item,
-                      i === highlightIndex && styles.itemHighlighted,
-                      opt.value === value && styles.itemSelected
-                    )}
-                    onMouseEnter={() => setHighlightIndex(i)}
-                    onClick={() => {
-                      onChange(opt.value);
-                      close();
-                    }}
-                  >
-                    <span {...stylex.props(dropdown.itemLabel)}>{opt.label}</span>
-                    {opt.sublabel && (
-                      <span {...stylex.props(dropdown.itemSublabel)}>
-                        {opt.sublabel}
-                      </span>
-                    )}
+            <div {...stylex.props(styles.sheetContent)}>
+              <div {...stylex.props(styles.searchContainer)}>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setHighlightIndex(0);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter") {
+                      e.preventDefault();
+                    }
+                  }}
+                  placeholder="Search by symbol or name"
+                  {...stylex.props(styles.searchInput)}
+                  aria-label="Search tokens"
+                />
+              </div>
+              <ul
+                ref={listRef}
+                role="listbox"
+                {...stylex.props(styles.list)}
+              >
+                {filtered.length === 0 ? (
+                  <li {...stylex.props(dropdown.emptyState)}>
+                    No tokens match &quot;{search.trim() || "..."}&quot;
                   </li>
-                ))
-              )}
-            </ul>
+                ) : (
+                  filtered.map((opt, i) => (
+                    <li
+                      key={opt.value}
+                      role="option"
+                      aria-selected={opt.value === value}
+                      {...stylex.props(
+                        styles.item,
+                        i === highlightIndex && styles.itemHighlighted,
+                        opt.value === value && styles.itemSelected
+                      )}
+                      onMouseEnter={() => setHighlightIndex(i)}
+                      onClick={() => {
+                        onChange(opt.value);
+                        close();
+                      }}
+                    >
+                      <div {...stylex.props(styles.itemContent)}>
+                        <TokenLogo 
+                          tokenAddress={opt.value} 
+                          tokenSymbol={opt.label}
+                          size={20}
+                          alt={opt.label}
+                        />
+                        <div {...stylex.props(styles.itemText)}>
+                          <span {...stylex.props(dropdown.itemLabel)}>{opt.label}</span>
+                          {opt.sublabel && (
+                            <span {...stylex.props(dropdown.itemSublabel)}>
+                              {opt.sublabel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

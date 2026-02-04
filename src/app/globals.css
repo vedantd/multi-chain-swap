@@ -85,3 +85,61 @@ input[type="number"] {
   }
 }
 
+/* Animations */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Utility classes for animations */
+.spinner-animation {
+  animation: spin 0.8s linear infinite;
+}
+
+.skeleton-animation {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.fade-in-animation {
+  animation: fadeIn 0.3s ease;
+}
+
+.slide-down-animation {
+  animation: slideDown 0.2s ease;
+}
+

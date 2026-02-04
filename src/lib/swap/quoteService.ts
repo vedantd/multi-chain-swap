@@ -24,6 +24,7 @@ import type { NormalizedQuote, QuotesResult, SwapParams } from "@/types/swap";
 import { CHAIN_ID_SOLANA } from "@/lib/chainConfig";
 import { getDebridgeQuote } from "@/lib/debridge/quote";
 import { getRelayQuote } from "@/lib/relay/quote";
+import { validateRelayRoute } from "@/lib/relay/routeValidation";
 import { logQuoteEvaluation, type QuoteEvaluationMeta } from "./logging/quoteLogger";
 
 /** Thrown when no quotes are eligible solely because user has insufficient SOL for gas. */
@@ -158,6 +159,19 @@ function getReasonChosen(
  * - Same-chain swaps (origin === destination): Relay only.
  * - Cross-chain: Relay and deBridge always queried.
  * - Quotes are shown regardless of user SOL balance; execution is blocked in UI when balance is insufficient.
+ * - Route validation: Checks Relay Chains API before fetching quotes to prevent wasting user time.
+ * 
+ * IMPORTANT - Quote Freshness (Relay Best Practices):
+ * - Quotes are revalidated when being filled - keep quotes as fresh as possible
+ * - Always re-quote before execution (see SwapPanel.tsx handleExecute)
+ * - Check quote expiry before execution
+ * 
+ * Preflight Checklist (from Relay docs):
+ * ✅ Verify user balance - Checked before execution
+ * ✅ Check chain support - Route validation before quote fetch
+ * ✅ Validate quote - Re-quote and validate before execution
+ * ✅ Handle errors - Comprehensive error handling throughout
+ * ✅ Monitor progress - Bridge status monitoring via /intents/status
  * 
  * @param params - Swap parameters (chains, tokens, amounts, addresses)
  * @param connection - Optional Solana connection for balance checks
@@ -165,7 +179,7 @@ function getReasonChosen(
  * @param userSolanaUSDCBalance - Optional user USDC balance on Solana (for Relay optimization)
  * @returns Promise resolving to quotes result with best quote selected
  * @throws NeedSolForGasError if no quotes eligible due to insufficient SOL
- * @throws Error if no quotes available from any provider
+ * @throws Error if no quotes available from any provider or route not supported
  */
 export async function getQuotes(
   params: SwapParams,
@@ -175,6 +189,21 @@ export async function getQuotes(
 ): Promise<QuotesResult> {
   if (isIllogicalRoute(params)) {
     throw new Error("Same token on same chain is not a valid swap. Choose a different destination token or chain.");
+  }
+
+  // Validate route before attempting to fetch quotes (prevents wasting user time)
+  const routeValidation = await validateRelayRoute(
+    params.originChainId,
+    params.originToken,
+    params.destinationChainId,
+    params.destinationToken
+  );
+
+  if (!routeValidation.isSupported) {
+    throw new Error(
+      routeValidation.reason ??
+        "This route is not supported. Try a different token pair or chain."
+    );
   }
 
   const recipient = params.recipientAddress ?? params.userAddress;

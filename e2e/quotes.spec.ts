@@ -136,31 +136,8 @@ test.describe('Quote Fetching', () => {
     }
   });
 
-  test('should show minimum received in quote details', async ({ page }) => {
-    const homePage = new HomePage(page);
-    
-    const swapPanelVisible = await homePage.swapPanel.isVisible({ timeout: 5000 }).catch(() => false);
-    if (!swapPanelVisible) {
-      test.skip();
-      return;
-    }
-
-    await homePage.fillSwapForm({
-      originToken: 'USDC',
-      amount: '100',
-      destinationChain: 'Base',
-      destinationToken: 'USDC',
-    });
-
-    await homePage.waitForQuote(60000);
-
-    const minimumReceivedVisible = await homePage.minimumReceived.isVisible().catch(() => false);
-    if (minimumReceivedVisible) {
-      await expect(homePage.minimumReceived).toBeVisible();
-    } else {
-      test.skip();
-    }
-  });
+  // Note: Minimum received field doesn't exist in current UI
+  // Removed test - quote details show Network fee and Relayer fee only
 
   test('should show multiple quote options when available', async ({ page }) => {
     const homePage = new HomePage(page);

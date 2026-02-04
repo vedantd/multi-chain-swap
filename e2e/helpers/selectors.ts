@@ -25,9 +25,10 @@ export const Selectors = {
   swapHeading: 'h2:has-text("Swap")',
   
   // Form inputs
-  originTokenSelect: 'label:has-text("Asset")',
-  destinationChainSelect: 'label:has-text("Chain")',
-  destinationTokenSelect: 'label:has-text("Token")',
+  // Note: These selectors may need data-testid attributes added to components
+  originTokenSelect: 'input[type="text"][inputmode="decimal"]', // Amount input - will need better selector
+  destinationChainSelect: 'button:has-text("Base"), button:has-text("Ethereum"), button:has-text("Solana")', // Chain dropdown
+  destinationTokenSelect: 'button:has-text("USDC"), button:has-text("SOL")', // Token dropdown
   amountInput: 'input[type="text"][inputmode="decimal"]',
   
   // Form validation
@@ -37,28 +38,39 @@ export const Selectors = {
   // Quote section
   quoteSection: 'text=Loading best quote',
   quoteLoading: 'text=Loading best quote…',
-  quoteError: 'text=Failed to load quotes',
-  noRoutesMessage: 'text=No routes available',
-  quoteTimeoutMessage: 'text=Your quote timed out',
+  quoteError: 'text=/Failed to load quotes|No quotes available/i',
+  noRoutesMessage: 'text=/No routes available/i', // Partial match for full message
+  quoteTimeoutMessage: 'text=/quote.*timeout|Quote expired/i',
   
   // Quote details
   networkFee: 'text=Network fee',
   relayerFee: 'text=Relayer fee',
-  gasSponsored: 'text=Gas sponsored',
-  minimumReceived: 'text=Minimum received',
+  gasSponsored: 'text=Sponsored', // Network fee shows "Sponsored" when gasless
+  // minimumReceived: removed - not in current UI
   
   // Quote actions
-  refreshQuoteButton: 'button:has-text("Fetch a new one")',
+  refreshQuoteButton: 'button:has-text("Refetch new quote")',
   otherQuoteButton: (text: string) => `button:has-text("${text}")`,
   
   // Execute button
-  confirmButton: 'button:has-text("Confirm")',
-  confirmingButton: 'button:has-text("Confirming…")',
+  confirmButton: 'button:has-text("Swap")', // Actual button text
+  confirmingButton: 'button:has-text("Swapping…")', // Actual button text when executing
   
   // Error messages
-  insufficientSolMessage: 'text=Need',
-  executeSuccess: 'text=Sent. View:',
-  executeError: 'text=Failed to send',
+  insufficientSolMessage: 'text=/Insufficient|Add SOL|Need SOL|insufficient funds/i',
+  executeSuccess: 'text=/Transaction|Bridge completed|finalized|confirmed/i',
+  executeError: 'text=/Failed|Error|refunded/i',
+  
+  // Route validation errors (new)
+  routeValidationError: 'text=/not supported|unsupported route|not found in Relay/i',
+  
+  // Bridge status (new)
+  bridgeStatusPending: 'text=/Bridge in progress|Transaction pending/i',
+  bridgeStatusSuccess: 'text=/Bridge completed|Transaction finalized/i',
+  bridgeStatusFailed: 'text=/Bridge failed|refunded/i',
+  
+  // Quote expiry (new)
+  quoteExpired: 'text=Quote expired',
   
   // Error banner
   errorBanner: '[role="alert"]',

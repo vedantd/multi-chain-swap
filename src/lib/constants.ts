@@ -12,7 +12,7 @@
  * Quotes from providers are considered valid for this duration after being fetched.
  * Used to determine when quotes expire and need to be refreshed.
  */
-export const QUOTE_VALIDITY_MS = 30_000; // 30 seconds
+export const QUOTE_VALIDITY_MS = 15_000; // 15 seconds
 
 /**
  * Debounce delay in milliseconds for quote fetching.

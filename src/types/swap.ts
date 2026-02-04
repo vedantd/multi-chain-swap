@@ -30,6 +30,58 @@ export interface SwapParams {
    * See: https://docs.relay.link/features/fee-sponsorship
    */
   depositFeePayer?: string;
+  /**
+   * Slippage tolerance in basis points (e.g., "50" for 0.5%).
+   * Controls how much the output amount can deviate from the quoted amount.
+   * 
+   * See: https://docs.relay.link/bridging-integration-guide#custom-slippage
+   */
+  slippageTolerance?: string;
+  /**
+   * Address to send refunds to in case of failure.
+   * If not specified, the user address is used.
+   * 
+   * See: https://docs.relay.link/bridging-integration-guide#quote-parameters
+   */
+  refundTo?: string;
+  /**
+   * Identifier for monitoring transactions from a specific source.
+   * Useful for analytics and tracking integration usage.
+   * 
+   * See: https://docs.relay.link/bridging-integration-guide#quote-parameters
+   */
+  referrer?: string;
+  /**
+   * Enable gas top-up on destination chain.
+   * Only supported for EVM chains when the requested currency is not the gas currency.
+   * 
+   * See: https://docs.relay.link/bridging-integration-guide#quote-parameters
+   */
+  topupGas?: boolean;
+  /**
+   * Gas top-up amount in USD decimal format (e.g., "2000000" = $2).
+   * Requires topupGas to be enabled. Defaults to $2 if not specified.
+   * 
+   * See: https://docs.relay.link/bridging-integration-guide#quote-parameters
+   */
+  topupGasAmount?: string;
+  /**
+   * Use canonical+ bridging for more liquidity.
+   * Enables additional liquidity sources for better rates.
+   * 
+   * See: https://docs.relay.link/bridging-integration-guide#quote-parameters
+   */
+  useExternalLiquidity?: boolean;
+  /**
+   * App fees to include in bridge requests for monetization.
+   * Array of fee recipients and percentages in basis points.
+   * 
+   * See: https://docs.relay.link/bridging-integration-guide#app-fees
+   */
+  appFees?: Array<{
+    recipient: string;
+    fee: string; // Basis points (e.g., "100" = 1%)
+  }>;
 }
 
 export type SwapProvider = "relay" | "debridge";
@@ -101,6 +153,7 @@ export interface TokenOption {
   value: string;
   label: string;
   sublabel?: string;
+  logoURI?: string; // Optional logo URL for token icon
 }
 
 // ============================================================================
@@ -121,3 +174,94 @@ export interface QuoteBalanceInput {
  * Used to provide fresh balance data when quotes are requested.
  */
 export type GetBalancesForQuote = () => Promise<QuoteBalanceInput | undefined>;
+
+// ============================================================================
+// Swap History Types
+// ============================================================================
+
+export type SwapTransactionStatus = "pending" | "confirmed" | "finalized" | "failed" | "completed";
+
+export interface SwapTransaction {
+  id: string;
+  userAddress: string;
+  provider: SwapProvider;
+  status: SwapTransactionStatus;
+  originChainId: number;
+  originToken: string;
+  originTokenSymbol: string;
+  originTokenAmount: string;
+  originTokenAmountFormatted: string;
+  destinationChainId: number;
+  destinationToken: string;
+  destinationTokenSymbol: string;
+  destinationTokenAmount: string;
+  destinationTokenAmountFormatted: string;
+  recipientAddress: string;
+  transactionHash: string | null;
+  destinationTransactionHash: string | null;
+  requestId: string | null; // Relay requestId
+  orderId: string | null; // deBridge orderId
+  fees: string;
+  feeCurrency: string;
+  feePayer: FeePayer;
+  sponsorCost: string;
+  userFee: string | null;
+  userFeeCurrency: string | null;
+  userFeeUsd: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  completedAt: Date | null;
+  errorMessage: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface CreateSwapRecordInput {
+  userAddress: string;
+  provider: SwapProvider;
+  originChainId: number;
+  originToken: string;
+  originTokenSymbol: string;
+  originTokenAmount: string;
+  originTokenAmountFormatted: string;
+  destinationChainId: number;
+  destinationToken: string;
+  destinationTokenSymbol: string;
+  destinationTokenAmount: string;
+  destinationTokenAmountFormatted: string;
+  recipientAddress: string;
+  transactionHash?: string | null;
+  requestId?: string | null;
+  orderId?: string | null;
+  fees: string;
+  feeCurrency: string;
+  feePayer: FeePayer;
+  sponsorCost: string;
+  userFee?: string | null;
+  userFeeCurrency?: string | null;
+  userFeeUsd?: number | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface UpdateSwapStatusInput {
+  id: string;
+  status: SwapTransactionStatus;
+  transactionHash?: string;
+  destinationTransactionHash?: string;
+  errorMessage?: string | null;
+  completedAt?: Date | null;
+}
+
+export interface SwapHistoryQuery {
+  userAddress: string;
+  limit?: number;
+  offset?: number;
+  status?: SwapTransactionStatus;
+  provider?: SwapProvider;
+}
+
+export interface SwapHistoryResponse {
+  swaps: SwapTransaction[];
+  total: number;
+  limit: number;
+  offset: number;
+}
