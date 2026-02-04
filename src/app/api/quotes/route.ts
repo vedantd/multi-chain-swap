@@ -1,12 +1,20 @@
+// External dependencies
 import { NextResponse } from "next/server";
+
+// Internal types
 import type { SwapParams } from "@/types/swap";
-import { getQuotes } from "@/lib/swap/quoteService";
+
+// Internal utilities/lib functions
+import { getQuotes, NeedSolForGasError } from "@/lib/swap/quoteService";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const params = body as Partial<SwapParams>;
+    const params = body as Partial<SwapParams> & {
+      userSOLBalance?: string;
+      userSolanaUSDCBalance?: string;
+    };
     if (
       typeof params.originChainId !== "number" ||
       typeof params.destinationChainId !== "number" ||
@@ -46,10 +54,41 @@ export async function POST(request: Request) {
           : undefined,
     };
 
-    console.log("[API /quotes] Request body:", JSON.stringify(swapParams, null, 2));
-    console.log("[API /quotes] Destination address (recipient):", swapParams.recipientAddress);
+    const sameChain = swapParams.originChainId === swapParams.destinationChainId;
+    const sameToken =
+      swapParams.originToken.trim().toLowerCase() === swapParams.destinationToken.trim().toLowerCase();
+    if (sameChain && sameToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Same token on same chain is not a valid swap. Choose a different destination token or chain.",
+          },
+        },
+        { status: 400 }
+      );
+    }
 
-    const result = await getQuotes(swapParams);
+    const userSOLBalance =
+      typeof params.userSOLBalance === "string" && params.userSOLBalance.trim() !== ""
+        ? params.userSOLBalance.trim()
+        : undefined;
+    const userSolanaUSDCBalance =
+      typeof params.userSolanaUSDCBalance === "string" && params.userSolanaUSDCBalance.trim() !== ""
+        ? params.userSolanaUSDCBalance.trim()
+        : undefined;
+
+    console.log("[API /quotes] Request body:", JSON.stringify(swapParams, null, 2));
+    console.log("[API /quotes] chains:", swapParams.originChainId, "->", swapParams.destinationChainId, "recipient:", swapParams.recipientAddress ?? swapParams.userAddress);
+    if (userSOLBalance !== undefined) {
+      console.log("[API /quotes] userSOLBalance (lamports) provided");
+    }
+    if (userSolanaUSDCBalance !== undefined) {
+      console.log("[API /quotes] userSolanaUSDCBalance (raw) provided");
+    }
+
+    const result = await getQuotes(swapParams, undefined, userSOLBalance, userSolanaUSDCBalance);
 
     console.log("[API /quotes] Result quotes count:", result.quotes.length, "best:", result.best?.provider ?? null);
 
@@ -58,12 +97,35 @@ export async function POST(request: Request) {
       data: { quotes: result.quotes, best: result.best },
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Failed to fetch quotes";
+    if (err instanceof NeedSolForGasError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "NEED_SOL_FOR_GAS",
+            message: err.message,
+          },
+        },
+        { status: 400 }
+      );
+    }
+    const message = err instanceof Error ? err.message : "";
+    const isNoRoutes =
+      message.startsWith("No quotes available") ||
+      message === "No eligible quotes available";
+    if (isNoRoutes) {
+      return NextResponse.json({
+        success: true,
+        data: { quotes: [], best: null },
+      });
+    }
     return NextResponse.json(
       {
         success: false,
-        error: { code: "QUOTE_ERROR", message },
+        error: {
+          code: "QUOTE_ERROR",
+          message: message || "Failed to fetch quotes",
+        },
       },
       { status: 502 }
     );
