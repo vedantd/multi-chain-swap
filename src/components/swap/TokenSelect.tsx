@@ -236,6 +236,13 @@ const styles = stylex.create({
     background: 'rgba(59, 130, 246, 0.08)',
     fontWeight: 600,
   },
+  selectedCheck: {
+    flexShrink: 0,
+    color: 'var(--primary)',
+    fontSize: '1rem',
+    fontWeight: 700,
+    marginLeft: 'auto',
+  },
 });
 
 export function TokenSelect({
@@ -443,40 +450,46 @@ export function TokenSelect({
                     No tokens match &quot;{search.trim() || "..."}&quot;
                   </li>
                 ) : (
-                  filtered.map((opt, i) => (
-                    <li
-                      key={opt.value}
-                      role="option"
-                      aria-selected={opt.value === value}
-                      {...stylex.props(
-                        styles.item,
-                        i === highlightIndex && styles.itemHighlighted,
-                        opt.value === value && styles.itemSelected
-                      )}
-                      onMouseEnter={() => setHighlightIndex(i)}
-                      onClick={() => {
-                        onChange(opt.value);
-                        close();
-                      }}
-                    >
-                      <div {...stylex.props(styles.itemContent)}>
-                        <TokenLogo 
-                          tokenAddress={opt.value} 
-                          tokenSymbol={opt.label}
-                          size={20}
-                          alt={opt.label}
-                        />
-                        <div {...stylex.props(styles.itemText)}>
-                          <span {...stylex.props(dropdown.itemLabel)}>{opt.label}</span>
-                          {opt.sublabel && (
-                            <span {...stylex.props(dropdown.itemSublabel)}>
-                              {opt.sublabel}
-                            </span>
+                  filtered.map((opt, i) => {
+                    const isSelected = norm(opt.value) === norm(value);
+                    return (
+                      <li
+                        key={opt.value}
+                        role="option"
+                        aria-selected={isSelected}
+                        {...stylex.props(
+                          styles.item,
+                          i === highlightIndex && styles.itemHighlighted,
+                          isSelected && styles.itemSelected
+                        )}
+                        onMouseEnter={() => setHighlightIndex(i)}
+                        onClick={() => {
+                          onChange(opt.value);
+                          close();
+                        }}
+                      >
+                        <div {...stylex.props(styles.itemContent)}>
+                          <TokenLogo 
+                            tokenAddress={opt.value} 
+                            tokenSymbol={opt.label}
+                            size={20}
+                            alt={opt.label}
+                          />
+                          <div {...stylex.props(styles.itemText)}>
+                            <span {...stylex.props(dropdown.itemLabel)}>{opt.label}</span>
+                            {opt.sublabel && (
+                              <span {...stylex.props(dropdown.itemSublabel)}>
+                                {opt.sublabel}
+                              </span>
+                            )}
+                          </div>
+                          {isSelected && (
+                            <span {...stylex.props(styles.selectedCheck)} aria-hidden>✓</span>
                           )}
                         </div>
-                      </div>
-                    </li>
-                  ))
+                      </li>
+                    );
+                  })
                 )}
               </ul>
             </div>

@@ -33,6 +33,7 @@ import {
   isEvmChain,
   TOKENS_BY_CHAIN,
 } from "@/lib/chainConfig";
+import { getChainLogoUrl } from "@/lib/utils/chainLogo";
 import {
   QUOTE_DEBOUNCE_MS,
   QUOTE_STALE_MS,
@@ -210,11 +211,11 @@ const styles = stylex.create({
     fontSize: '0.75rem',
     color: 'var(--muted-foreground)',
     marginTop: '0.25rem',
-    paddingLeft: '0',
+    paddingLeft: '0.75rem',
   },
   amountInput: {
     width: '100%',
-    padding: '0',
+    padding: '0 0.75rem',
     margin: '0',
     borderRadius: 'var(--radius-sm)',
     border: 'none',
@@ -229,6 +230,9 @@ const styles = stylex.create({
     WebkitAppearance: 'none',
     MozAppearance: 'textfield',
     appearance: 'none',
+  },
+  amountInputReadOnly: {
+    color: 'var(--muted-foreground)',
   },
   rawAmountHint: {
     fontSize: '0.7rem',
@@ -604,69 +608,112 @@ const styles = stylex.create({
     background: 'rgba(255, 255, 255, 0.05)',
     boxShadow: 'none',
   },
-  successMessage: {
-    fontSize: '0.875rem',
+  resultCard: {
+    position: 'relative',
+    padding: '1rem 1.25rem',
+    paddingRight: '2.5rem',
+    borderRadius: 'var(--radius-sm, 8px)',
+    marginTop: '0.75rem',
+    marginBottom: '1rem',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+  },
+  resultCardSuccess: {
+    background: 'rgba(34, 197, 94, 0.08)',
+    border: '1px solid rgba(34, 197, 94, 0.25)',
     color: 'var(--success, #22c55e)',
+  },
+  resultCardError: {
+    background: 'rgba(239, 68, 68, 0.08)',
+    border: '1px solid rgba(239, 68, 68, 0.25)',
+    color: 'var(--destructive, #ef4444)',
+  },
+  resultCardHeader: {
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
-    padding: '0.75rem 1rem',
-    borderRadius: '8px',
-    background: 'rgba(34, 197, 94, 0.1)',
-    border: '1px solid rgba(34, 197, 94, 0.3)',
-    marginBottom: '1rem',
-    transition: 'all 0.3s ease',
-    marginTop: '0.5rem',
+    fontSize: '0.9375rem',
+    fontWeight: 600,
+  },
+  resultCardBody: {
+    fontSize: '0.8125rem',
+    color: 'var(--muted-foreground, #94a3b8)',
+    lineHeight: 1.45,
+  },
+  resultCardBodySuccess: {
+    color: 'rgba(34, 197, 94, 0.9)',
+  },
+  resultCardExplorerButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.375rem',
+    padding: '0.5rem 0.875rem',
+    fontSize: '0.8125rem',
+    fontWeight: 500,
+    borderRadius: '6px',
+    border: '1px solid var(--border, #1e293b)',
+    background: 'rgba(255, 255, 255, 0.06)',
+    color: 'var(--foreground, #f4f4f5)',
+    textDecoration: 'none',
+    cursor: 'pointer',
+    transition: 'background 0.15s, border-color 0.15s',
+    alignSelf: 'flex-start',
+    ':hover': {
+      background: 'rgba(255, 255, 255, 0.1)',
+      borderColor: 'var(--muted-foreground, #94a3b8)',
+    },
   },
   transactionStatusBanner: {
     fontSize: '0.875rem',
-    padding: '0.75rem',
-    borderRadius: '8px',
+    padding: '1rem 1.25rem',
+    borderRadius: 'var(--radius-sm, 8px)',
     marginTop: '0.75rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.625rem',
+    transition: 'all 0.2s ease',
+  },
+  transactionStatusRow: {
     display: 'flex',
     alignItems: 'center',
     gap: '0.5rem',
-    transition: 'all 0.3s ease',
   },
   transactionStatusPending: {
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    border: '1px solid rgba(59, 130, 246, 0.3)',
+    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+    border: '1px solid rgba(59, 130, 246, 0.25)',
     color: '#60a5fa',
   },
   transactionStatusConfirmed: {
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    border: '1px solid rgba(34, 197, 94, 0.3)',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    border: '1px solid rgba(34, 197, 94, 0.25)',
     color: '#4ade80',
   },
   transactionStatusFinalized: {
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-    border: '1px solid rgba(34, 197, 94, 0.4)',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    border: '1px solid rgba(34, 197, 94, 0.25)',
     color: '#22c55e',
   },
   transactionStatusFailed: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    border: '1px solid rgba(239, 68, 68, 0.25)',
     color: '#f87171',
   },
   transactionLink: {
-    color: 'inherit',
-    textDecoration: 'underline',
-    textDecorationThickness: '1px',
-    textUnderlineOffset: '2px',
-    cursor: 'pointer',
-  },
-  executeErrorMessage: {
-    fontSize: '0.875rem',
-    color: 'var(--destructive, #ef4444)',
-    display: 'flex',
+    display: 'inline-flex',
     alignItems: 'center',
-    gap: '0.5rem',
-    padding: '0.75rem 1rem',
-    borderRadius: '8px',
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    marginBottom: '1rem',
-    transition: 'all 0.3s ease',
+    padding: '0.5rem 0.875rem',
+    fontSize: '0.8125rem',
+    fontWeight: 500,
+    borderRadius: '6px',
+    border: '1px solid var(--border, #1e293b)',
+    background: 'rgba(255, 255, 255, 0.06)',
+    color: 'inherit',
+    textDecoration: 'none',
+    cursor: 'pointer',
+    transition: 'background 0.15s, border-color 0.15s',
+    alignSelf: 'flex-start',
   },
   statusIcon: {
     display: 'inline-flex',
@@ -682,6 +729,20 @@ const styles = stylex.create({
   gettingQuoteText: {
     fontSize: '0.875rem',
     color: 'var(--muted-foreground, #666)',
+  },
+  dismissMessageButton: {
+    position: 'absolute',
+    top: '0.5rem',
+    right: '0.5rem',
+    padding: '0.25rem',
+    border: 'none',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'inherit',
+    opacity: 0.7,
+    cursor: 'pointer',
+    fontSize: '1rem',
+    lineHeight: 1,
   },
 });
 
@@ -881,6 +942,13 @@ export function SwapPanel() {
   
   // Quote expiry timer state
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+
+  // Auto-dismiss success message after 10 seconds so it doesn't stay on screen forever
+  useEffect(() => {
+    if (!executeSuccess) return;
+    const t = setTimeout(() => setExecuteSuccess(null), 10_000);
+    return () => clearTimeout(t);
+  }, [executeSuccess, setExecuteSuccess]);
   
   // Fetch tokens for all chains in the background
   useEffect(() => {
@@ -1943,7 +2011,7 @@ export function SwapPanel() {
                 value={originToken}
                 onChange={setOriginToken}
                 placeholder="Select token"
-                chainBadgeUrl="/solana.png"
+                chainBadgeUrl={getChainLogoUrl(ORIGIN_CHAIN_ID) ?? undefined}
               />
             </div>
           </div>
@@ -1975,7 +2043,7 @@ export function SwapPanel() {
                 }
                 readOnly
                 placeholder="0.0"
-                {...stylex.props(styles.amountInput)}
+                {...stylex.props(styles.amountInput, styles.amountInputReadOnly)}
                 style={{
                   background: 'transparent',
                   backgroundColor: 'transparent',
@@ -2316,56 +2384,97 @@ export function SwapPanel() {
                 )}
                 className="fade-in-animation"
               >
-                <div {...stylex.props(styles.statusIcon)}>
-                  {transactionStatus === "pending" && (
-                    <LoadingSpinner size={16} />
-                  )}
-                  {transactionStatus === "confirmed" && "✓"}
-                  {transactionStatus === "finalized" && "✓"}
-                  {transactionStatus === "failed" && "✗"}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div>
+                <div {...stylex.props(styles.transactionStatusRow)}>
+                  <div {...stylex.props(styles.statusIcon)}>
+                    {transactionStatus === "pending" && (
+                      <LoadingSpinner size={16} />
+                    )}
+                    {transactionStatus === "confirmed" && "✓"}
+                    {transactionStatus === "finalized" && "✓"}
+                    {transactionStatus === "failed" && "✗"}
+                  </div>
+                  <span style={{ fontWeight: 500 }}>
                     Transaction {transactionStatus === "pending" && "pending"}
                     {transactionStatus === "confirmed" && "confirmed"}
                     {transactionStatus === "finalized" && "finalized"}
                     {transactionStatus === "failed" && "failed"}
-                  </div>
-                  {transactionStatus !== "failed" && (
-                    <a
-                      href={
-                        activeQuote?.provider === "relay"
-                          ? `https://explorer.solana.com/tx/${transactionSignature}`
-                          : `https://etherscan.io/tx/${transactionSignature}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      {...stylex.props(styles.transactionLink)}
-                    >
-                      View on Explorer
-                    </a>
-                  )}
+                  </span>
                 </div>
+                {transactionStatus !== "failed" && (
+                  <a
+                    href={
+                      activeQuote?.provider === "relay"
+                        ? `https://explorer.solana.com/tx/${transactionSignature}`
+                        : `https://etherscan.io/tx/${transactionSignature}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    {...stylex.props(styles.transactionLink)}
+                  >
+                    View on Explorer
+                  </a>
+                )}
               </div>
             )}
             
             {/* Execution success/error messages */}
-            {executeSuccess && (
-              <div 
-                {...stylex.props(styles.successMessage)}
-                className="fade-in-animation"
-              >
-                <span {...stylex.props(styles.statusIcon)}>✓</span>
-                <span>{executeSuccess}</span>
-              </div>
-            )}
+            {executeSuccess && (() => {
+              const urlMatch = executeSuccess.match(/https:\/\/[^\s]+/);
+              const explorerUrl = urlMatch?.[0] ?? null;
+              const textOnly = explorerUrl
+                ? executeSuccess.replace(/\s*View:\s*https:\/\/[^\s]+/, "").trim()
+                : executeSuccess;
+              return (
+                <div
+                  {...stylex.props(styles.resultCard, styles.resultCardSuccess)}
+                  className="fade-in-animation"
+                >
+                  <div {...stylex.props(styles.resultCardHeader)}>
+                    <span {...stylex.props(styles.statusIcon)}>✓</span>
+                    Swap completed
+                  </div>
+                  {textOnly && textOnly.length > 25 && (
+                    <div {...stylex.props(styles.resultCardBody, styles.resultCardBodySuccess)}>{textOnly}</div>
+                  )}
+                  {explorerUrl && (
+                    <a
+                      href={explorerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      {...stylex.props(styles.resultCardExplorerButton)}
+                    >
+                      View on Explorer
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Dismiss"
+                    {...stylex.props(styles.dismissMessageButton)}
+                    onClick={() => setExecuteSuccess(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })()}
             {executeError && (
-              <div 
-                {...stylex.props(styles.executeErrorMessage)}
+              <div
+                {...stylex.props(styles.resultCard, styles.resultCardError)}
                 className="fade-in-animation"
               >
-                <span {...stylex.props(styles.statusIcon)}>✗</span>
-                <span>{executeError}</span>
+                <div {...stylex.props(styles.resultCardHeader)}>
+                  <span {...stylex.props(styles.statusIcon)}>✗</span>
+                  Swap failed
+                </div>
+                <div {...stylex.props(styles.resultCardBody)}>{executeError}</div>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  {...stylex.props(styles.dismissMessageButton)}
+                  onClick={() => setExecuteError(null)}
+                >
+                  ×
+                </button>
               </div>
             )}
           </div>

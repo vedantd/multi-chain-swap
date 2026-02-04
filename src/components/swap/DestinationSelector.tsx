@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DropdownOption, TokenOption } from "@/types/swap";
 import { TokenLogo } from "@/components/shared/TokenLogo";
-import { getChainIcon } from "@/lib/utils/chainLogo";
+import { getChainIcon, getChainLogoUrl } from "@/lib/utils/chainLogo";
 import { dropdown, form, layout } from "@/styles/shared.stylex";
 
 // Popular/common tokens that should appear first
@@ -172,21 +172,26 @@ const styles = stylex.create({
   networkList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '0.125rem',
+    gap: 0,
   },
   networkItem: {
-    padding: '0.75rem',
-    borderRadius: '12px',
+    padding: '0.5rem 0',
+    borderRadius: 0,
     border: 'none',
     cursor: 'pointer',
     color: 'var(--foreground)',
     fontSize: '0.875rem',
     fontWeight: 500,
     background: 'transparent',
-    transition: 'all 0.15s ease',
+    transition: 'color 0.15s ease, font-weight 0.15s ease',
     display: 'flex',
     alignItems: 'center',
     gap: '0.75rem',
+    width: '100%',
+    textAlign: 'left',
+    appearance: 'none',
+    outline: 'none',
+    boxShadow: 'none',
   },
   networkItemContent: {
     display: 'flex',
@@ -195,18 +200,35 @@ const styles = stylex.create({
     flex: 1,
     minWidth: 0,
   },
-  networkItemText: {
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: 0,
-    flex: 1,
+  networkItemLabel: {
+    display: 'block',
+  },
+  chainIcon: {
+    width: '1.25rem',
+    height: '1.25rem',
+    borderRadius: '50%',
+    objectFit: 'cover',
+    flexShrink: 0,
+  },
+  chainIconTrigger: {
+    width: '1.125rem',
+    height: '1.125rem',
+    borderRadius: '50%',
+    objectFit: 'cover',
+    flexShrink: 0,
   },
   networkItemHighlighted: {
-    background: 'rgba(255, 255, 255, 0.05)',
+    color: 'var(--foreground)',
   },
   networkItemActive: {
-    background: 'rgba(59, 130, 246, 0.08)',
     fontWeight: 600,
+  },
+  selectedCheck: {
+    flexShrink: 0,
+    color: 'var(--primary)',
+    fontSize: '1rem',
+    fontWeight: 700,
+    marginLeft: 'auto',
   },
   tokenSection: {
     display: 'flex',
@@ -399,7 +421,19 @@ export function DestinationSelector({
             />
           )}
           <span {...stylex.props(styles.triggerText)} title={activeChain && selectedToken ? `${activeChain.label} – ${selectedToken.label}` : undefined}>
-            {activeChain ? getChainIcon(destinationChainId) : "Select net"}
+            {activeChain ? (
+              getChainLogoUrl(destinationChainId) ? (
+                <img
+                  src={getChainLogoUrl(destinationChainId)!}
+                  alt={getChainIcon(destinationChainId)}
+                  {...stylex.props(styles.chainIconTrigger)}
+                />
+              ) : (
+                getChainIcon(destinationChainId)
+              )
+            ) : (
+              "Select net"
+            )}
             {selectedToken ? ` – ${selectedToken.label}` : ""}
           </span>
         </div>
@@ -437,14 +471,21 @@ export function DestinationSelector({
             <div {...stylex.props(styles.sheetContent)}>
               {/* Network Selection */}
               <div {...stylex.props(styles.networkSection)}>
-                <div {...stylex.props(styles.networkList)}>
+                <div {...stylex.props(styles.networkList)} role="list">
                   {filteredChains.map((opt) => {
                     const isActive = Number(opt.value) === destinationChainId;
                     return (
-                      <button
+                      <div
                         key={opt.value}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={() => onChangeChain(Number(opt.value))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onChangeChain(Number(opt.value));
+                          }
+                        }}
                         {...stylex.props(
                           styles.networkItem,
                           isActive && styles.networkItemActive,
@@ -454,14 +495,23 @@ export function DestinationSelector({
                         onMouseLeave={() => setHoveredPill(null)}
                       >
                         <div {...stylex.props(styles.networkItemContent)}>
-                          <span style={{ fontSize: '1rem', lineHeight: 1, flexShrink: 0 }}>
-                            {getChainIcon(Number(opt.value))}
-                          </span>
-                          <div {...stylex.props(styles.networkItemText)}>
-                            <span {...stylex.props(dropdown.itemLabel)}>{opt.label}</span>
-                          </div>
+                          {getChainLogoUrl(Number(opt.value)) ? (
+                            <img
+                              src={getChainLogoUrl(Number(opt.value))!}
+                              alt={opt.label}
+                              {...stylex.props(styles.chainIcon)}
+                            />
+                          ) : (
+                            <span style={{ fontSize: '1rem', lineHeight: 1, flexShrink: 0 }}>
+                              {getChainIcon(Number(opt.value))}
+                            </span>
+                          )}
+                          <span {...stylex.props(styles.networkItemLabel)}>{opt.label}</span>
+                          {isActive && (
+                            <span {...stylex.props(styles.selectedCheck)} aria-hidden>✓</span>
+                          )}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -529,6 +579,9 @@ export function DestinationSelector({
                                 </span>
                               )}
                             </div>
+                            {isSelected && (
+                              <span {...stylex.props(styles.selectedCheck)} aria-hidden>✓</span>
+                            )}
                           </div>
                         </li>
                       );
