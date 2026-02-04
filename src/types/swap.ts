@@ -32,8 +32,28 @@ export interface NormalizedQuote {
   feePayer: FeePayer;
   /** Raw amount the sponsor pays (same currency as feeCurrency). deBridge is "0". */
   sponsorCost: string;
+  /** Bridge fees paid by sponsor (RECOUPED by Relay from user). */
+  recoupedSponsorCost?: string;
+  /** Worst-case non-recouped sponsor costs in USD (gas + rent + token-loss + drift + failure buffers). */
+  worstCaseSponsorCostUsd?: number;
+  /** User fee to cover non-recouped costs (in raw units). */
+  userFee?: string;
+  userFeeCurrency?: "USDC" | "SOL";
+  userFeeUsd?: number; // USD value for comparison
+  /** Route metadata for two execution lanes. */
+  gasless?: boolean; // true for Relay (sponsor pays gas)
+  requiresSOL?: boolean; // true if user needs SOL (deBridge or SOL fee fallback)
+  /** USD values for route comparison. */
+  userReceivesUsd?: number;
+  userPaysUsd?: number;
   /** When origin is Solana and user pays (e.g. deBridge), estimated lamports for origin tx. */
   solanaCostToUser?: string;
+  /** SOL price in USD (for SOL cost calculations). */
+  solPriceUsd?: number;
+  /** Price drift percentage (e.g., 0.02 for 2%) - accounts for quote volatility. Primarily for Relay quotes. */
+  priceDrift?: number;
+  /** Operating expense in raw units (when prependOperatingExpenses=true for deBridge). */
+  operatingExpense?: string;
   expiryAt: number;
   raw: unknown;
   timeEstimateSeconds?: number;
@@ -44,3 +64,46 @@ export interface QuotesResult {
   quotes: NormalizedQuote[];
   best: NormalizedQuote | null;
 }
+
+// ============================================================================
+// UI Component Types
+// ============================================================================
+
+/**
+ * Option for dropdown/select components.
+ * Used in chain selection and other dropdown menus.
+ */
+export interface DropdownOption {
+  value: string;
+  label: string;
+  sublabel?: string;
+}
+
+/**
+ * Option for token selection components.
+ * Includes token address, symbol, and optional sublabel for display.
+ */
+export interface TokenOption {
+  value: string;
+  label: string;
+  sublabel?: string;
+}
+
+// ============================================================================
+// Quote Hook Types
+// ============================================================================
+
+/**
+ * Balance information that can be provided when fetching quotes.
+ * Allows the API to optimize quote selection based on user's available balances.
+ */
+export interface QuoteBalanceInput {
+  userSOLBalance?: string;
+  userSolanaUSDCBalance?: string;
+}
+
+/**
+ * Function type for fetching balances dynamically at quote time.
+ * Used to provide fresh balance data when quotes are requested.
+ */
+export type GetBalancesForQuote = () => Promise<QuoteBalanceInput | undefined>;
