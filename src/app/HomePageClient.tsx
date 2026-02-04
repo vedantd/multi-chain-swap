@@ -12,7 +12,7 @@ import { layout, typography, spacing } from '@/styles/shared.stylex';
 const styles = stylex.create({
   pageContainer: {
     padding: '1.5rem 1rem 2rem',
-    maxWidth: '28rem',
+    maxWidth: '36rem',
     margin: '0 auto',
   },
   header: {
@@ -38,6 +38,14 @@ const styles = stylex.create({
     color: 'var(--foreground)',
     opacity: 0.8,
     marginBottom: '0.5rem',
+  },
+  link: {
+    color: 'var(--primary)',
+    textDecoration: 'underline',
+    textDecorationThickness: '1px',
+    textUnderlineOffset: '2px',
+    cursor: 'pointer',
+    display: 'inline',
   },
 });
 
@@ -69,8 +77,27 @@ export function HomePageClient() {
             )}
             {!hasWallets && !connected && (
               <p {...stylex.props(styles.statusText)}>
-                No Solana wallet detected. Install a browser extension like Phantom
-                or Solflare to connect.
+                No Solana wallet detected. Install a browser extension like{' '}
+                <a 
+                  href="https://phantom.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  {...stylex.props(styles.link)}
+                  style={{ textDecoration: 'underline' }}
+                >
+                  Phantom
+                </a>
+                {' '}or{' '}
+                <a 
+                  href="https://solflare.com/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  {...stylex.props(styles.link)}
+                  style={{ textDecoration: 'underline' }}
+                >
+                  Solflare
+                </a>
+                {' '}to connect.
               </p>
             )}
             {hasWallets && !connected && !connecting && (

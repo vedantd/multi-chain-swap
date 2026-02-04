@@ -53,32 +53,45 @@ interface DestinationSelectorProps {
 
 const styles = stylex.create({
   trigger: {
-    display: 'inline-flex',
+    display: 'flex',
     alignItems: 'center',
-    gap: '0.4rem',
-    padding: '0.4rem 0.75rem',
-    borderRadius: '999px',
-    border: '1px solid var(--border)',
-    background: 'var(--input-bg, #0f172a)',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    padding: '0.625rem 0.75rem',
+    borderRadius: '16px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    background: 'rgba(255, 255, 255, 0.05)',
     color: 'var(--foreground)',
     cursor: 'pointer',
-    fontSize: '0.875rem',
+    fontSize: '0.9375rem',
     fontWeight: 500,
-    maxWidth: '12rem',
+    width: '100%',
+    minWidth: '100%',
+    transition: 'all 0.2s ease',
+  },
+  triggerHover: {
+    background: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   triggerText: {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    flex: 1,
+    minWidth: 0,
   },
   triggerArrow: {
+    flexShrink: 0,
     width: '0.5rem',
     height: '0.5rem',
     borderRight: '2px solid var(--muted-foreground)',
     borderBottom: '2px solid var(--muted-foreground)',
     transform: 'rotate(45deg)',
-    marginBottom: '-0.1rem',
-    flexShrink: 0,
+    marginBottom: '-0.15rem',
+  },
+  triggerArrowOpen: {
+    transform: 'rotate(225deg)',
+    marginBottom: '0.1rem',
   },
   backdrop: {
     position: 'fixed',
@@ -169,16 +182,22 @@ const styles = stylex.create({
   networkPill: {
     padding: '0.3rem 0.6rem',
     borderRadius: '999px',
-    border: '1px solid var(--border)',
-    background: 'transparent',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    background: 'rgba(255, 255, 255, 0.05)',
     color: 'var(--foreground)',
     fontSize: '0.75rem',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+    transition: 'all 0.2s ease',
+  },
+  networkPillHover: {
+    background: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   networkPillActive: {
-    background: '#1e293b',
-    borderColor: '#334155',
+    background: 'rgba(59, 130, 246, 0.15)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+    color: '#60a5fa',
   },
   tokenSection: {
     display: 'flex',
@@ -199,6 +218,16 @@ const styles = stylex.create({
     marginBottom: '0.5rem',
     flexShrink: 0,
   },
+  searchInputField: {
+    width: '100%',
+    padding: '0.5rem 0.75rem',
+    borderRadius: '8px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    background: 'rgba(255, 255, 255, 0.03)',
+    color: 'var(--foreground)',
+    fontSize: '0.875rem',
+    boxSizing: 'border-box',
+  },
   tokenList: {
     flex: 1,
     overflowY: 'auto',
@@ -214,16 +243,22 @@ const styles = stylex.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '0.5rem 0.75rem',
-    borderRadius: '0.5rem',
-    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
     cursor: 'pointer',
     fontSize: '0.875rem',
-    background: '#020617',
+    fontWeight: 500,
+    background: 'rgba(255, 255, 255, 0.03)',
     marginBottom: '0.25rem',
+    transition: 'all 0.2s ease',
+  },
+  tokenRowHover: {
+    background: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   tokenRowSelected: {
-    background: '#0f172a',
-    borderColor: '#334155',
+    background: 'rgba(59, 130, 246, 0.1)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
   },
   tokenSymbol: {
     fontWeight: 600,
@@ -245,6 +280,9 @@ export function DestinationSelector({
 }: DestinationSelectorProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [triggerHovered, setTriggerHovered] = useState(false);
+  const [hoveredPill, setHoveredPill] = useState<number | null>(null);
+  const [hoveredToken, setHoveredToken] = useState<string | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
 
   const activeChain = destinationChainOptions.find(
@@ -312,13 +350,24 @@ export function DestinationSelector({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        {...stylex.props(styles.trigger)}
+        {...stylex.props(
+          styles.trigger,
+          triggerHovered && styles.triggerHover
+        )}
+        onMouseEnter={() => setTriggerHovered(true)}
+        onMouseLeave={() => setTriggerHovered(false)}
       >
         <span {...stylex.props(styles.triggerText)}>
           {activeChain ? activeChain.label : "Select network"}{" "}
           {selectedToken ? `• ${selectedToken.label}` : ""}
         </span>
-        <span {...stylex.props(styles.triggerArrow)} aria-hidden />
+        <span 
+          {...stylex.props(
+            styles.triggerArrow,
+            open && styles.triggerArrowOpen
+          )} 
+          aria-hidden 
+        />
       </button>
 
       {open && (
@@ -356,8 +405,11 @@ export function DestinationSelector({
                       onClick={() => onChangeChain(Number(opt.value))}
                       {...stylex.props(
                         styles.networkPill,
-                        isActive && styles.networkPillActive
+                        isActive && styles.networkPillActive,
+                        hoveredPill === Number(opt.value) && !isActive && styles.networkPillHover
                       )}
+                      onMouseEnter={() => setHoveredPill(Number(opt.value))}
+                      onMouseLeave={() => setHoveredPill(null)}
                     >
                       {opt.label}
                     </button>
@@ -373,8 +425,8 @@ export function DestinationSelector({
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search tokens"
-                  {...stylex.props(form.input)}
+                  placeholder="Search tokens"
+                  {...stylex.props(styles.searchInputField)}
                 />
               </div>
                 <div {...stylex.props(styles.tokenList)}>
@@ -393,8 +445,11 @@ export function DestinationSelector({
                         onClick={() => handleSelectToken(token)}
                         {...stylex.props(
                           styles.tokenRow,
-                          isSelected && styles.tokenRowSelected
+                          isSelected && styles.tokenRowSelected,
+                          hoveredToken === token.value && !isSelected && styles.tokenRowHover
                         )}
+                        onMouseEnter={() => setHoveredToken(token.value)}
+                        onMouseLeave={() => setHoveredToken(null)}
                       >
                         <div>
                           <div {...stylex.props(styles.tokenSymbol)}>

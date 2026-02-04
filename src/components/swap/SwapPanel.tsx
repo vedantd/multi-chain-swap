@@ -47,7 +47,9 @@ import {
   minSolRequiredForQuote,
   validateSponsorProfitability,
 } from "@/lib/swap/quoteService";
-import { getSolBalance, getTokenBalance } from "@/lib/solana/balance";
+import { getSolBalance, getTokenBalance, checkDustAndUncloseable } from "@/lib/solana/balance";
+import { pollTransactionStatus, type TransactionStatus } from "@/lib/solana/transactionStatus";
+import { getUserFriendlyErrorMessage, withRetry } from "@/lib/wallet/errors";
 
 // Internal components
 import { SelectDropdown } from "@/components/swap/SelectDropdown";
@@ -124,10 +126,10 @@ const styles = stylex.create({
   },
   inputSection: {
     padding: '1rem',
-    borderRadius: 'var(--radius-sm)',
-    border: '1px solid var(--border)',
-    background: 'var(--input-bg, #0f172a)',
-    marginBottom: '0.5rem',
+    borderRadius: '16px',
+    border: 'none',
+    background: 'transparent',
+    marginBottom: '0.75rem',
   },
   inputHeader: {
     display: 'flex',
@@ -139,6 +141,12 @@ const styles = stylex.create({
     fontSize: '0.75rem',
     color: 'var(--muted-foreground)',
     fontWeight: 500,
+    width: '80px',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    height: '100%',
+    lineHeight: '1.5',
   },
   chainBadge: {
     display: 'inline-flex',
@@ -153,27 +161,65 @@ const styles = stylex.create({
   },
   inputRow: {
     display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: '0.75rem',
-    alignItems: 'flex-start',
-    flexWrap: 'wrap',
+    paddingLeft: '0.75rem',
+    paddingRight: '0',
+  },
+  inputAmountWrapper: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+    background: 'transparent',
+    minWidth: 0,
+  },
+  inputHeaderRow: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '0.5rem',
+    paddingLeft: '0.75rem',
+    paddingRight: '0',
+  },
+  tokenSelectContainer: {
+    flexShrink: 0,
+    minWidth: '220px',
+    width: '220px',
+    display: 'flex',
+    alignItems: 'center',
+    height: '100%',
   },
   inputGroup: {
-    flex: '1 1 120px',
-    minWidth: '100px',
+    width: '100%',
   },
   inputGroupWide: {
-    flex: '1 1 140px',
-    minWidth: '120px',
+    width: '100%',
+  },
+  balanceText: {
+    fontSize: '0.75rem',
+    color: 'var(--muted-foreground)',
+    marginTop: '0.25rem',
+    paddingLeft: '0',
   },
   amountInput: {
     width: '100%',
-    padding: '0.625rem 0.75rem',
+    padding: '0',
+    margin: '0',
     borderRadius: 'var(--radius-sm)',
-    border: '1px solid var(--border)',
-    background: 'var(--input-bg, #0f172a)',
+    border: 'none',
+    background: 'transparent',
+    backgroundColor: 'transparent',
     color: 'var(--foreground)',
-    fontSize: '1rem',
+    fontSize: '2rem',
+    fontWeight: 500,
     boxSizing: 'border-box',
+    outline: 'none',
+    lineHeight: 1.2,
+    WebkitAppearance: 'none',
+    MozAppearance: 'textfield',
+    appearance: 'none',
   },
   rawAmountHint: {
     fontSize: '0.7rem',
@@ -199,9 +245,9 @@ const styles = stylex.create({
   },
   toSection: {
     padding: '1rem',
-    borderRadius: 'var(--radius-sm)',
-    border: '1px solid var(--border)',
-    background: 'var(--input-bg, #0f172a)',
+    borderRadius: '16px',
+    border: 'none',
+    background: 'transparent',
     marginBottom: '0.75rem',
   },
   toHeader: {
@@ -214,27 +260,62 @@ const styles = stylex.create({
     fontSize: '0.75rem',
     color: 'var(--muted-foreground)',
     fontWeight: 500,
+    width: '80px',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    height: '100%',
+    lineHeight: '1.5',
   },
   toAmountRow: {
     display: 'flex',
-    alignItems: 'flex-end',
+    flexDirection: 'column',
+    gap: '0.75rem',
+    marginBottom: '0.25rem',
+  },
+  toAmountHeaderRow: {
+    display: 'flex',
+    alignItems: 'center',
+    marginBottom: '0.5rem',
+    paddingLeft: '0.75rem',
+    paddingRight: '0',
+  },
+  toAmountContent: {
+    display: 'flex',
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: '0.75rem',
-    flexWrap: 'nowrap',
-    marginBottom: '0.25rem',
+    paddingLeft: '0.75rem',
+    paddingRight: '0',
+  },
+  toAmountWrapper: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+    background: 'transparent',
+    minWidth: 0,
   },
   destinationSelectorContainer: {
     flexShrink: 0,
+    minWidth: '220px',
+    width: '220px',
+    display: 'flex',
+    alignItems: 'center',
+    height: '100%',
   },
   receiveAmount: {
-    fontSize: '1.5rem',
-    fontWeight: 600,
+    fontSize: '2rem',
+    fontWeight: 500,
     color: 'var(--foreground)',
+    lineHeight: 1.2,
   },
   receiveAmountPlaceholder: {
-    fontSize: '1.5rem',
+    fontSize: '2rem',
     fontWeight: 500,
     color: 'var(--muted-foreground)',
+    lineHeight: 1.2,
   },
   receiveCaption: {
     fontSize: '0.75rem',
@@ -253,10 +334,46 @@ const styles = stylex.create({
     color: 'var(--destructive)',
     marginBottom: '0.25rem',
   },
+  warningBanner: {
+    fontSize: '0.875rem',
+    color: '#f59e0b',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    border: '1px solid rgba(245, 158, 11, 0.3)',
+    borderRadius: '8px',
+    padding: '0.75rem',
+    marginBottom: '0.75rem',
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '0.5rem',
+  },
+  errorLink: {
+    color: 'var(--primary)',
+    textDecoration: 'underline',
+    textDecorationThickness: '1px',
+    textUnderlineOffset: '2px',
+    cursor: 'pointer',
+    display: 'inline',
+  },
   invalidRouteText: {
     fontSize: '0.75rem',
     color: 'var(--muted-foreground, #666)',
     marginBottom: '0.5rem',
+  },
+  expiryIndicator: {
+    fontSize: '0.75rem',
+    marginTop: '0.5rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+  },
+  expiryIndicatorWarning: {
+    color: '#f59e0b',
+  },
+  expiryIndicatorExpired: {
+    color: 'var(--destructive)',
+  },
+  expiryIndicatorNormal: {
+    color: 'var(--muted-foreground, #666)',
   },
   quoteSection: {
     marginTop: '1.5rem',
@@ -289,7 +406,13 @@ const styles = stylex.create({
   timeoutMessage: {
     fontSize: '0.875rem',
     color: 'var(--muted-foreground, #666)',
+    marginTop: '0.75rem',
     marginBottom: '0.75rem',
+    textAlign: 'right',
+    display: 'flex',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: '0.25rem',
   },
   quoteDetails: {
     marginBottom: '1rem',
@@ -327,9 +450,27 @@ const styles = stylex.create({
     fontSize: '0.75rem',
     color: 'var(--muted-foreground, #666)',
     marginTop: '0.35rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.25rem',
   },
-  otherOptionButton: {
-    marginRight: '0.5rem',
+  infoIcon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '0.875rem',
+    height: '0.875rem',
+    borderRadius: '50%',
+    border: '1px solid var(--muted-foreground)',
+    color: 'var(--muted-foreground)',
+    fontSize: '0.625rem',
+    fontWeight: 600,
+    cursor: 'help',
+    flexShrink: 0,
+  },
+  infoTooltip: {
+    position: 'relative',
+    display: 'inline-block',
   },
   actionRow: {
     display: 'flex',
@@ -380,6 +521,42 @@ const styles = stylex.create({
     fontSize: '0.875rem',
     color: 'var(--success, green)',
     marginTop: '0.5rem',
+  },
+  transactionStatusBanner: {
+    fontSize: '0.875rem',
+    padding: '0.75rem',
+    borderRadius: '8px',
+    marginTop: '0.75rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+  },
+  transactionStatusPending: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    border: '1px solid rgba(59, 130, 246, 0.3)',
+    color: '#60a5fa',
+  },
+  transactionStatusConfirmed: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    border: '1px solid rgba(34, 197, 94, 0.3)',
+    color: '#4ade80',
+  },
+  transactionStatusFinalized: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    border: '1px solid rgba(34, 197, 94, 0.4)',
+    color: '#22c55e',
+  },
+  transactionStatusFailed: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    border: '1px solid rgba(239, 68, 68, 0.3)',
+    color: '#f87171',
+  },
+  transactionLink: {
+    color: 'inherit',
+    textDecoration: 'underline',
+    textDecorationThickness: '1px',
+    textUnderlineOffset: '2px',
+    cursor: 'pointer',
   },
   executeErrorMessage: {
     fontSize: '0.875rem',
@@ -603,6 +780,21 @@ export function SwapPanel() {
 
   // Preload tokens for all destination chains in the background
   const [preloadedTokens, setPreloadedTokens] = useState<Record<number, typeof destinationTokensFetched>>({});
+  
+  // Dust detection state
+  const [dustWarning, setDustWarning] = useState<{
+    isDust: boolean;
+    isUncloseable: boolean;
+    dustAmount: string;
+    tokenSymbol: string;
+  } | null>(null);
+  
+  // Transaction tracking state
+  const [transactionStatus, setTransactionStatus] = useState<TransactionStatus | null>(null);
+  const [transactionSignature, setTransactionSignature] = useState<string | null>(null);
+  
+  // Quote expiry timer state
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
   
   // Fetch tokens for all chains in the background
   useEffect(() => {
@@ -863,6 +1055,49 @@ export function SwapPanel() {
     };
   }, [connection, publicKey, originToken, selectedOriginToken, isSOL, setUserSourceTokenBalance]);
 
+  // Check for dust and uncloseable accounts when balance or amount changes
+  useEffect(() => {
+    if (!connection || !publicKey || !originToken || !amount || !userSourceTokenBalance) {
+      setDustWarning(null);
+      return;
+    }
+
+    const checkDust = async () => {
+      try {
+        const rawAmount = humanAmountToRaw(amount, selectedOriginToken?.decimals ?? 9);
+        if (!rawAmount || rawAmount === "0") {
+          setDustWarning(null);
+          return;
+        }
+
+        const mint = isSOL ? "SOL" : originToken;
+        const result = await checkDustAndUncloseable(
+          connection,
+          publicKey.toBase58(),
+          mint,
+          userSourceTokenBalance,
+          rawAmount
+        );
+
+        if (result.isDust || result.isUncloseable) {
+          setDustWarning({
+            isDust: result.isDust,
+            isUncloseable: result.isUncloseable,
+            dustAmount: result.dustAmount,
+            tokenSymbol: selectedOriginToken?.symbol ?? "tokens",
+          });
+        } else {
+          setDustWarning(null);
+        }
+      } catch (error) {
+        console.warn("[SwapPanel] Error checking dust:", error);
+        setDustWarning(null);
+      }
+    };
+
+    checkDust();
+  }, [connection, publicKey, originToken, amount, userSourceTokenBalance, selectedOriginToken, isSOL]);
+
   // Listen for EVM account changes on the provider that matches the connected Solana wallet.
   useEffect(() => {
     if (!destIsEvm || typeof window === "undefined") return;
@@ -938,16 +1173,19 @@ export function SwapPanel() {
   const {
     data,
     isLoading,
+    isFetching,
+    refetch,
     isError,
     error,
-    refetch,
-    isFetching,
   } = useQuotes(params ?? null, getBalancesForQuote, {
     disableAutoRefetch: shouldDisableAutoRefetch,
   });
 
   const best = data?.best ?? null;
   const quotes = data?.quotes ?? [];
+  
+  // Calculate activeQuote early so it can be used in useEffect hooks
+  const activeQuote = selectedQuote ?? best;
 
   // Only auto-fetch quote when form is fully filled; wait until user settles input (debounce).
   useEffect(() => {
@@ -1055,11 +1293,27 @@ export function SwapPanel() {
     return () => clearInterval(interval);
   }, [best, paramsLastChangedAt, updateNow]);
   
-  // Show timeout prompt if params haven't changed for 20 seconds AND we have a quote
-  const isTimedOut =
-    best != null &&
-    paramsLastChangedAt != null &&
-    now - paramsLastChangedAt >= QUOTE_STALE_MS;
+  // Quote expiry countdown timer
+  useEffect(() => {
+    if (!activeQuote) {
+      setTimeRemaining(null);
+      return;
+    }
+    
+    const updateTimer = () => {
+      const remaining = activeQuote.expiryAt - Date.now();
+      setTimeRemaining(remaining > 0 ? remaining : 0);
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [activeQuote]);
+  
+  // Track if quote has expired (background check, no auto-refresh)
+  const isQuoteExpired = activeQuote != null && timeRemaining !== null && timeRemaining <= 0;
+  
+  // Check if quote is expired (based on quote expiry time, not staleness)
   const isExpired =
     best != null && Date.now() >= best.expiryAt;
   // Check if user has sufficient source token balance
@@ -1086,17 +1340,18 @@ export function SwapPanel() {
     selectedQuote == null ||
     userSOLBalance === undefined ||
     hasEnoughSolForQuote(selectedQuote, userSOLBalance);
+  // Block execution if quote is expired
   const canExecute =
     selectedQuote != null && 
     !executing && 
     !isExpired && 
+    !isQuoteExpired &&
     hasSufficientSol && 
     hasSufficientSourceToken;
   const insufficientSourceToken =
     rawAmount !== "0" &&
     (userSourceTokenBalance === undefined || !hasSufficientSourceToken);
 
-  const activeQuote = selectedQuote ?? best;
   const receiveDisplay = activeQuote ? computeReceiveDisplay(activeQuote) : null;
 
   const handleExecute = useCallback(async () => {
@@ -1106,6 +1361,8 @@ export function SwapPanel() {
     setExecuting(true);
     setExecuteError(null);
     setExecuteSuccess(null);
+    setTransactionStatus(null);
+    setTransactionSignature(null);
     try {
       // Block execution if quote requires SOL and user has insufficient balance (fresh check)
       const latestSol = await getSolBalance(connection, publicKey!.toBase58());
@@ -1115,64 +1372,73 @@ export function SwapPanel() {
       }
       let quoteToExecute = currentSelectedQuote;
 
-      // Relay: Always re-quote and re-validate before execution
+      // Relay: Always re-quote and re-validate before execution (with retry)
       if (currentSelectedQuote.provider === "relay") {
         try {
-          // Re-fetch quotes from API
-          const res = await fetch("/api/quotes", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(currentSwapParams),
+          await withRetry(async () => {
+            // Re-fetch quotes from API
+            const res = await fetch("/api/quotes", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(currentSwapParams),
+            });
+
+            if (!res.ok) {
+              throw new Error("Failed to re-quote Relay");
+            }
+
+            const json = await res.json();
+            if (!json.success || !json.data) {
+              throw new Error("Invalid response from quote API");
+            }
+
+            const freshQuotes = json.data.quotes as NormalizedQuote[];
+            const freshQuote = freshQuotes.find((q) => q.provider === "relay");
+
+            if (!freshQuote) {
+              throw new Error("Relay quote no longer available");
+            }
+
+            // Re-validate solvency
+            const validation = validateSponsorProfitability(freshQuote);
+            if (!validation.valid) {
+              throw new Error(`Quote no longer valid: ${validation.reason}`);
+            }
+
+            // Use fresh quote for execution
+            quoteToExecute = freshQuote;
+            setSelectedQuote(freshQuote);
           });
-
-          if (!res.ok) {
-            throw new Error("Failed to re-quote Relay");
-          }
-
-          const json = await res.json();
-          if (!json.success || !json.data) {
-            throw new Error("Invalid response from quote API");
-          }
-
-          const freshQuotes = json.data.quotes as NormalizedQuote[];
-          const freshQuote = freshQuotes.find((q) => q.provider === "relay");
-
-          if (!freshQuote) {
-            throw new Error("Relay quote no longer available");
-          }
-
-          // Re-validate solvency
-          const validation = validateSponsorProfitability(freshQuote);
-          if (!validation.valid) {
-            throw new Error(`Quote no longer valid: ${validation.reason}`);
-          }
-
-          // Use fresh quote for execution
-          quoteToExecute = freshQuote;
-          setSelectedQuote(freshQuote);
         } catch (err) {
-          setExecuteError(err instanceof Error ? err.message : "Failed to re-quote Relay");
+          setExecuteError(getUserFriendlyErrorMessage(err, { transactionType: "swap", provider: "relay" }));
           return;
         }
       }
 
+      // Check quote expiry before execution
+      if (Date.now() >= quoteToExecute.expiryAt) {
+        setExecuteError("Quote expired. Please fetch a new quote.");
+        // Try to auto-refresh
+        try {
+          if (quoteToExecute.provider === "relay") {
+            await refetch();
+          } else if (quoteToExecute.provider === "debridge") {
+            const freshQuote = await getDebridgeQuote(currentSwapParams);
+            setSelectedQuote(freshQuote);
+          }
+        } catch (err) {
+          // Ignore refresh errors, user can manually refresh
+        }
+        return;
+      }
+      
       // DLN: Check expiry and transaction timing
       if (currentSelectedQuote.provider === "debridge") {
         const quoteAge = Date.now() - (currentSelectedQuote.expiryAt - QUOTE_VALIDITY_MS);
         const DEBRIDGE_TRANSACTION_WINDOW_MS = 30_000; // 30 seconds
         const DEBRIDGE_WARNING_THRESHOLD_MS = 25_000; // 25 seconds
         
-        if (Date.now() >= currentSelectedQuote.expiryAt) {
-          // Quote expired - refresh required
-          try {
-            const freshQuote = await getDebridgeQuote(currentSwapParams);
-            quoteToExecute = freshQuote;
-            setSelectedQuote(freshQuote);
-          } catch (err) {
-            setExecuteError(err instanceof Error ? err.message : "Quote expired, failed to refresh");
-            return;
-          }
-        } else if (quoteAge > DEBRIDGE_TRANSACTION_WINDOW_MS) {
+        if (quoteAge > DEBRIDGE_TRANSACTION_WINDOW_MS) {
           // Quote too old - block execution (beyond 30s window)
           setExecuteError("Quote is too old. Please fetch a new quote for better fulfillment probability.");
           return;
@@ -1187,18 +1453,29 @@ export function SwapPanel() {
       if (quoteToExecute.provider === "debridge" && raw?.tx) {
         const tx = raw.tx as Record<string, unknown>;
         if (typeof window !== "undefined" && (window as unknown as { ethereum?: { request: (args: unknown) => Promise<unknown> } }).ethereum?.request) {
-          const hash = await (window as unknown as { ethereum: { request: (args: unknown) => Promise<unknown> } }).ethereum.request({
-            method: "eth_sendTransaction",
-            params: [
-              {
-                to: tx.to,
-                data: tx.data,
-                value: tx.value ?? "0",
-                from: (tx as { from?: string }).from,
-              },
-            ],
-          });
-          console.log("deBridge tx sent:", hash);
+          try {
+            setTransactionStatus("pending");
+            const hash = await withRetry(async () => {
+              return await (window as unknown as { ethereum: { request: (args: unknown) => Promise<unknown> } }).ethereum!.request({
+                method: "eth_sendTransaction",
+                params: [
+                  {
+                    to: tx.to,
+                    data: tx.data,
+                    value: tx.value ?? "0",
+                    from: (tx as { from?: string }).from,
+                  },
+                ],
+              });
+            });
+            console.log("deBridge tx sent:", hash);
+            setTransactionSignature(String(hash));
+            setTransactionStatus("confirmed");
+            setExecuteSuccess(`Transaction sent. Hash: ${hash}`);
+          } catch (err) {
+            setTransactionStatus("failed");
+            setExecuteError(getUserFriendlyErrorMessage(err, { transactionType: "swap", provider: "debridge" }));
+          }
         } else {
           setExecuteError("EVM wallet required for deBridge execution. Raw tx logged to console.");
           console.log("deBridge raw tx (EVM):", raw.tx);
@@ -1216,12 +1493,31 @@ export function SwapPanel() {
             const buf = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
             const tx = VersionedTransaction.deserialize(buf);
-            const sig = await sendTransaction(tx, connection, { skipPreflight: false });
+            
+            setTransactionStatus("pending");
+            const sig = await withRetry(async () => {
+              return await sendTransaction(tx, connection, { skipPreflight: false });
+            });
+            
             console.log("Relay Solana tx sent:", sig);
-            setExecuteSuccess(`Sent. View: https://explorer.solana.com/tx/${sig}`);
+            setTransactionSignature(sig);
+            setTransactionStatus("pending");
+            
+            // Start polling transaction status
+            const statusResult = await pollTransactionStatus(connection, sig);
+            setTransactionStatus(statusResult.status);
+            
+            if (statusResult.status === "finalized") {
+              setExecuteSuccess(`Transaction finalized. View: https://explorer.solana.com/tx/${sig}`);
+            } else if (statusResult.status === "confirmed") {
+              setExecuteSuccess(`Transaction confirmed. View: https://explorer.solana.com/tx/${sig}`);
+            } else {
+              setExecuteError(getUserFriendlyErrorMessage(statusResult.error ?? new Error("Transaction failed"), { transactionType: "swap", provider: "relay" }));
+            }
           } catch (err) {
+            setTransactionStatus("failed");
             console.error("Relay Solana send failed:", err);
-            setExecuteError(err instanceof Error ? err.message : "Failed to send Solana transaction");
+            setExecuteError(getUserFriendlyErrorMessage(err, { transactionType: "swap", provider: "relay" }));
           }
         } else {
           setExecuteError("Relay execution: no Solana transaction in step. Raw logged to console.");
@@ -1232,7 +1528,8 @@ export function SwapPanel() {
         console.log("Quote raw payload:", raw);
       }
     } catch (e) {
-      setExecuteError(e instanceof Error ? e.message : "Execution failed");
+      setTransactionStatus("failed");
+      setExecuteError(getUserFriendlyErrorMessage(e, { transactionType: "swap" }));
     } finally {
       setExecuting(false);
     }
@@ -1247,41 +1544,11 @@ export function SwapPanel() {
       <section {...stylex.props(styles.section)}>
         {/* From */}
         <div {...stylex.props(styles.inputSection)}>
-          <div {...stylex.props(styles.inputHeader)}>
-            <span {...stylex.props(styles.chainBadge)} aria-label="Solana">
-              <svg width="20" height="20" viewBox="0 0 397 311" fill="none" xmlns="http://www.w3.org/2000/svg" {...stylex.props(styles.solanaIcon)}>
-                <path d="M64.6 237.9c2.4-2.4 5.7-3.8 9.2-3.8h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1l62.7-62.7z" fill="url(#solana-a)" />
-                <path d="M64.6 3.8C67.1 1.4 70.4 0 73.8 0h317.4c5.8 0 8.7 7 4.6 11.1l-62.7 62.7c-2.4 2.4-5.7 3.8-9.2 3.8H6.5c-5.8 0-8.7-7-4.6-11.1L64.6 3.8z" fill="url(#solana-b)" />
-                <path d="M332.3 120.1c-2.4-2.4-5.7-3.8-9.2-3.8H6.5c-5.8 0-8.7 7-4.6 11.1l62.7 62.7c2.4 2.4 5.7 3.8 9.2 3.8h316.6c5.8 0 8.7-7 4.6-11.1l-62.7-62.7z" fill="url(#solana-c)" />
-                <defs>
-                  <linearGradient id="solana-a" x1="360.9" y1="351.5" x2="141.2" y2="-69.2" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#14F195" />
-                    <stop offset="1" stopColor="#9945FF" />
-                  </linearGradient>
-                  <linearGradient id="solana-b" x1="264.5" y1="401.6" x2="45" y2="-19.2" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#14F195" />
-                    <stop offset="1" stopColor="#9945FF" />
-                  </linearGradient>
-                  <linearGradient id="solana-c" x1="312.6" y1="401.6" x2="93" y2="-19.2" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#14F195" />
-                    <stop offset="1" stopColor="#9945FF" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </span>
+          <div {...stylex.props(styles.inputHeaderRow)}>
+            <span {...stylex.props(styles.inputLabel)}>You pay</span>
           </div>
           <div {...stylex.props(styles.inputRow)}>
-            <div {...stylex.props(styles.inputGroup)}>
-              <TokenSelect
-                label="You pay"
-                options={originTokenOptions}
-                value={originToken}
-                onChange={setOriginToken}
-                placeholder="Select token"
-              />
-            </div>
-          <div {...stylex.props(styles.inputGroupWide)}>
-              <label {...stylex.props(form.label)}>Amount</label>
+            <div {...stylex.props(styles.inputAmountWrapper)}>
               <input
                 type="text"
                 inputMode="decimal"
@@ -1292,6 +1559,23 @@ export function SwapPanel() {
                 }}
                 placeholder="0.0"
                 {...stylex.props(styles.amountInput)}
+                style={{
+                  background: 'transparent',
+                  backgroundColor: 'transparent',
+                }}
+              />
+              {userSourceTokenBalance !== undefined && (
+                <div {...stylex.props(styles.balanceText)}>
+                  Balance: {formatRawAmount(String(userSourceTokenBalance), selectedOriginToken?.symbol ?? "")} {selectedOriginToken?.symbol ?? ""}
+                </div>
+              )}
+            </div>
+            <div {...stylex.props(styles.tokenSelectContainer)}>
+              <TokenSelect
+                options={originTokenOptions}
+                value={originToken}
+                onChange={setOriginToken}
+                placeholder="Select token"
               />
             </div>
           </div>
@@ -1303,25 +1587,30 @@ export function SwapPanel() {
 
         {/* To */}
         <div {...stylex.props(styles.toSection)}>
-          <div {...stylex.props(styles.toHeader)}>
+          <div {...stylex.props(styles.toAmountHeaderRow)}>
             <span {...stylex.props(styles.toLabel)}>You receive</span>
           </div>
-          <div {...stylex.props(styles.toAmountRow)}>
-            <div>
-              <div
-                {...stylex.props(
-                  receiveDisplay && !isTimedOut && !isError
-                    ? styles.receiveAmount
-                    : styles.receiveAmountPlaceholder
-                )}
-              >
-                {receiveDisplay?.estimatedOutFormatted ?? "0.0"}
-              </div>
-              <div {...stylex.props(styles.receiveCaption)}>
-                {receiveDisplay
-                  ? `Min received: ${receiveDisplay.effectiveReceiveFormatted} ${receiveDisplay.symbol}${isTimedOut ? " (stale – fetch a new quote)" : ""}`
-                  : "Min received: —"}
-              </div>
+          <div {...stylex.props(styles.toAmountContent)}>
+            <div {...stylex.props(styles.toAmountWrapper)}>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={
+                  receiveDisplay?.estimatedOutFormatted 
+                    ? (() => {
+                        const num = parseFloat(receiveDisplay.estimatedOutFormatted);
+                        return isNaN(num) ? receiveDisplay.estimatedOutFormatted : num.toFixed(3).replace(/\.?0+$/, '');
+                      })()
+                    : "0.0"
+                }
+                readOnly
+                placeholder="0.0"
+                {...stylex.props(styles.amountInput)}
+                style={{
+                  background: 'transparent',
+                  backgroundColor: 'transparent',
+                }}
+              />
             </div>
             <div {...stylex.props(styles.destinationSelectorContainer)}>
               <DestinationSelector
@@ -1337,9 +1626,62 @@ export function SwapPanel() {
         </div>
 
         <div {...stylex.props(layout.flexColGap)}>
+          {dustWarning && (dustWarning.isDust || dustWarning.isUncloseable) && (
+            <div {...stylex.props(styles.warningBanner)}>
+              <span>⚠️</span>
+              <div>
+                {dustWarning.isDust && (
+                  <div>
+                    <strong>Warning:</strong> This swap will leave {formatRawAmount(dustWarning.dustAmount, dustWarning.tokenSymbol)} {dustWarning.tokenSymbol} that cannot be recovered (dust amount below rent-exempt minimum).
+                  </div>
+                )}
+                {dustWarning.isUncloseable && (
+                  <div>
+                    <strong>Warning:</strong> This swap will leave your account balance exactly at the rent-exempt minimum, making it uncloseable without losing the rent deposit.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {destIsEvm && evmAddressError && (
             <p {...stylex.props(styles.errorText)}>
-              Could not get EVM address. Connect your EVM wallet or try again.
+              {evmAddressError.includes('MetaMask') || evmAddressError.includes('Phantom') ? (
+                <>
+                  {evmAddressError.split(/(MetaMask|Phantom)/).filter(Boolean).map((part, i) => {
+                    if (part === 'MetaMask') {
+                      return (
+                        <a
+                          key={i}
+                          href="https://metamask.io/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          {...stylex.props(styles.errorLink)}
+                          style={{ textDecoration: 'underline' }}
+                        >
+                          MetaMask
+                        </a>
+                      );
+                    }
+                    if (part === 'Phantom') {
+                      return (
+                        <a
+                          key={i}
+                          href="https://phantom.app/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          {...stylex.props(styles.errorLink)}
+                          style={{ textDecoration: 'underline' }}
+                        >
+                          Phantom
+                        </a>
+                      );
+                    }
+                    return <span key={i}>{part}</span>;
+                  })}
+                </>
+              ) : (
+                evmAddressError
+              )}
             </p>
           )}
           {isIllogicalRoute && (
@@ -1366,10 +1708,6 @@ export function SwapPanel() {
                       </div>
                       <div {...stylex.props(styles.itemizedRow)}>
                         <span {...stylex.props(styles.itemizedLabel)}>Relayer fee</span>
-                        <span {...stylex.props(styles.itemizedValue)}>—</span>
-                      </div>
-                      <div {...stylex.props(styles.itemizedRow)}>
-                        <span {...stylex.props(styles.itemizedLabel)}>Gas sponsored</span>
                         <span {...stylex.props(styles.itemizedValue)}>—</span>
                       </div>
                     </div>
@@ -1425,10 +1763,6 @@ export function SwapPanel() {
                         <span {...stylex.props(styles.itemizedLabel)}>Relayer fee</span>
                         <span {...stylex.props(styles.itemizedValueRed)}>{relayerFeeDisplay}</span>
                       </div>
-                      <div {...stylex.props(styles.itemizedRow)}>
-                        <span {...stylex.props(styles.itemizedLabel)}>Gas sponsored</span>
-                        <span {...stylex.props(styles.itemizedValue)}>{isGasless ? "Yes" : "No"}</span>
-                      </div>
                       {q.priceDrift != null && q.priceDrift > 0 && (
                         <div {...stylex.props(styles.itemizedRow)}>
                           <span {...stylex.props(styles.itemizedLabel)}>Price drift</span>
@@ -1436,35 +1770,10 @@ export function SwapPanel() {
                         </div>
                       )}
                     </div>
-                    {quotes.length > 1 && (
-                      <p {...stylex.props(styles.otherOptions)}>
-                        Other options:{" "}
-                        {quotes
-                          .filter((oq) => oq.provider !== q.provider)
-                          .map((oq) => (
-                            <button
-                              key={oq.provider}
-                              type="button"
-                              onClick={() => setSelectedQuote(oq)}
-                              {...stylex.props(buttons.textLink)}
-                              style={{ 
-                                background: 'transparent',
-                                border: 'none',
-                                outline: 'none',
-                                boxShadow: 'none',
-                                fontSize: 'inherit',
-                                padding: 0,
-                                marginLeft: '0.25rem',
-                              }}
-                            >
-                              {oq.gasless ? "Gasless" : "Requires gas"}
-                            </button>
-                          ))}
-                      </p>
-                    )}
-                    {isTimedOut && (
-                      <p {...stylex.props(styles.timeoutMessage)}>
-                        Your quote timed out.{" "}
+                    {/* Show expired message when quote expires */}
+                    {!executing && isQuoteExpired && (
+                      <div {...stylex.props(styles.timeoutMessage)}>
+                        <span>Quote expired.</span>
                         <button
                           type="button"
                           onClick={async () => {
@@ -1485,11 +1794,11 @@ export function SwapPanel() {
                             boxShadow: 'none',
                           }}
                         >
-                          Fetch a new one?
+                          Refetch new quote?
                         </button>
-                      </p>
+                      </div>
                     )}
-                  </>
+                                      </>
                 );
               })()}
             </div>
@@ -1543,11 +1852,61 @@ export function SwapPanel() {
                     (!canExecute || isLoading || !best) && styles.confirmButtonDisabled
                   )}
                 >
-                  {executing ? "Confirming…" : "Confirm"}
+                  {executing
+                    ? transactionStatus === "pending"
+                      ? "Confirming…"
+                      : transactionStatus === "confirmed"
+                        ? "Confirmed"
+                        : transactionStatus === "finalized"
+                          ? "Finalized"
+                          : "Confirming…"
+                    : "Confirm"}
                 </button>
               )}
             </div>
 
+            {/* Transaction status display */}
+            {transactionStatus && transactionSignature && (
+              <div
+                {...stylex.props(
+                  styles.transactionStatusBanner,
+                  transactionStatus === "pending" && styles.transactionStatusPending,
+                  transactionStatus === "confirmed" && styles.transactionStatusConfirmed,
+                  transactionStatus === "finalized" && styles.transactionStatusFinalized,
+                  transactionStatus === "failed" && styles.transactionStatusFailed
+                )}
+              >
+                <span>
+                  {transactionStatus === "pending" && "⏳"}
+                  {transactionStatus === "confirmed" && "✓"}
+                  {transactionStatus === "finalized" && "✓"}
+                  {transactionStatus === "failed" && "✗"}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div>
+                    Transaction {transactionStatus === "pending" && "pending"}
+                    {transactionStatus === "confirmed" && "confirmed"}
+                    {transactionStatus === "finalized" && "finalized"}
+                    {transactionStatus === "failed" && "failed"}
+                  </div>
+                  {transactionStatus !== "failed" && (
+                    <a
+                      href={
+                        activeQuote?.provider === "relay"
+                          ? `https://explorer.solana.com/tx/${transactionSignature}`
+                          : `https://etherscan.io/tx/${transactionSignature}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      {...stylex.props(styles.transactionLink)}
+                    >
+                      View on Explorer
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+            
             {/* Execution success/error messages */}
             {executeSuccess && (
               <p {...stylex.props(styles.successMessage)}>
