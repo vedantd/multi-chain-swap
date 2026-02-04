@@ -33,6 +33,7 @@ import {
   isEvmChain,
   TOKENS_BY_CHAIN,
 } from "@/lib/chainConfig";
+import { getChainIcon } from "@/lib/utils/chainLogo";
 import {
   QUOTE_DEBOUNCE_MS,
   QUOTE_STALE_MS,
@@ -188,9 +189,20 @@ const styles = stylex.create({
   inputHeaderRow: {
     display: 'flex',
     alignItems: 'center',
+    gap: '0.5rem',
     marginBottom: '0.5rem',
     paddingLeft: '0.75rem',
     paddingRight: '0',
+  },
+  sourceNetworkIcon: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '20px',
+    height: '20px',
+    fontSize: '14px',
+    lineHeight: 1,
+    flexShrink: 0,
   },
   tokenSelectContainer: {
     flexShrink: 0,
@@ -1743,9 +1755,16 @@ export function SwapPanel() {
   return (
     <div {...stylex.props(styles.panelContainer)}>
       <section {...stylex.props(styles.section)}>
-        {/* From */}
+        {/* From - Solana source */}
         <div {...stylex.props(styles.inputSection)}>
           <div {...stylex.props(styles.inputHeaderRow)}>
+            <span
+              {...stylex.props(styles.sourceNetworkIcon)}
+              title="Solana network"
+              aria-hidden
+            >
+              {getChainIcon(CHAIN_ID_SOLANA)}
+            </span>
             <span {...stylex.props(styles.inputLabel)}>You pay</span>
           </div>
           <div {...stylex.props(styles.inputRow)}>

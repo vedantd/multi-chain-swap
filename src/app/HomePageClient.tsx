@@ -136,9 +136,9 @@ export function HomePageClient() {
               <h1 {...stylex.props(styles.headlinePlain)}>DeFi your way.</h1>
               <h1 {...stylex.props(styles.headlineAccent)}>Your Nika.</h1>
               <p {...stylex.props(styles.bodyCopy)}>
-                Spot, perps, staking, and yield across Ethereum, Solana, Arbitrum,
-                and more. CEX-like speed, AI guidance, and total self-custody. All
-                in one app.
+                Multi-chain swap from Solana to Ethereum, Base, Arbitrum, Polygon,
+                and more. Connect your wallet to swap USDC and other tokens across
+                chains in one app.
               </p>
               <div className="landing-cta-wrap" {...stylex.props(styles.ctaButton)}>
                 <WalletMultiButton className="wallet-adapter-button-trigger">
