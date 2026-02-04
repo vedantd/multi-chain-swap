@@ -5,7 +5,9 @@
 
 import type { ChainToken } from "@/lib/chainConfig";
 import { toRelayChainId, TOKENS_BY_CHAIN } from "@/lib/chainConfig";
+import { SUPPORTED_TOKENS_STALE_TIME_MS } from "@/lib/constants";
 
+const SUPPORTED_TOKENS_CACHE_MS = SUPPORTED_TOKENS_STALE_TIME_MS;
 const CACHE_MS = 5 * 60 * 1000; // 5 minutes
 const RELAY_CURRENCIES_URL = "https://api.relay.link/currencies/v2";
 const DEBRIDGE_TOKEN_LIST_URL = "https://dln.debridge.finance/v1.0/token-list";

@@ -16,7 +16,7 @@
 
 // External dependencies
 import * as stylex from '@stylexjs/stylex';
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction } from "@solana/web3.js";
 
@@ -52,6 +52,7 @@ import { getSolBalance, getTokenBalance } from "@/lib/solana/balance";
 // Internal components
 import { SelectDropdown } from "@/components/swap/SelectDropdown";
 import { TokenSelect } from "@/components/swap/TokenSelect";
+import { DestinationSelector } from "@/components/swap/DestinationSelector";
 
 // Internal hooks
 import { useQuotes } from "@/hooks/useQuotes";
@@ -69,6 +70,36 @@ import {
 import { container, typography, buttons, form, quote, badge, layout } from '@/styles/shared.stylex';
 
 const ORIGIN_CHAIN_ID = CHAIN_ID_SOLANA;
+
+function computeReceiveDisplay(q: NormalizedQuote) {
+  const effectiveReceive = effectiveReceiveRaw(q);
+  const expectedOutNum = BigInt(q.expectedOut);
+  const expectedOutFormattedNum = parseFloat(q.expectedOutFormatted);
+  const useRatio =
+    expectedOutNum > BigInt(0) &&
+    Number.isFinite(expectedOutFormattedNum) &&
+    expectedOutFormattedNum >= 0;
+
+  const effectiveReceiveFormatted = useRatio
+    ? (() => {
+        const ratio = Number(effectiveReceive) / Number(expectedOutNum);
+        const value = ratio * expectedOutFormattedNum;
+        if (!Number.isFinite(value) || value < 0) return "0";
+        if (value >= 1e9) {
+          return String(Math.round(value));
+        }
+        const formatted = value.toFixed(3);
+        return formatted.replace(/\.?0+$/, "");
+      })()
+    : formatRawAmount(String(effectiveReceive), q.feeCurrency);
+
+  return {
+    effectiveReceive,
+    effectiveReceiveFormatted,
+    estimatedOutFormatted: q.expectedOutFormatted,
+    symbol: q.feeCurrency,
+  };
+}
 
 const styles = stylex.create({
   panelContainer: {
@@ -173,10 +204,42 @@ const styles = stylex.create({
     background: 'var(--input-bg, #0f172a)',
     marginBottom: '0.75rem',
   },
+  toHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: '0.5rem',
+  },
   toLabel: {
     fontSize: '0.75rem',
     color: 'var(--muted-foreground)',
     fontWeight: 500,
+  },
+  toAmountRow: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: '0.75rem',
+    flexWrap: 'nowrap',
+    marginBottom: '0.25rem',
+  },
+  destinationSelectorContainer: {
+    flexShrink: 0,
+  },
+  receiveAmount: {
+    fontSize: '1.5rem',
+    fontWeight: 600,
+    color: 'var(--foreground)',
+  },
+  receiveAmountPlaceholder: {
+    fontSize: '1.5rem',
+    fontWeight: 500,
+    color: 'var(--muted-foreground)',
+  },
+  receiveCaption: {
+    fontSize: '0.75rem',
+    color: 'var(--muted-foreground)',
+    marginTop: '0.15rem',
   },
   toInputRow: {
     display: 'flex',
@@ -538,6 +601,34 @@ export function SwapPanel() {
     enabled: !!originToken,
   });
 
+  // Preload tokens for all destination chains in the background
+  const [preloadedTokens, setPreloadedTokens] = useState<Record<number, typeof destinationTokensFetched>>({});
+  
+  // Fetch tokens for all chains in the background
+  useEffect(() => {
+    const fetchAllTokens = async () => {
+      const { getSupportedTokensForChain } = await import("@/lib/tokens/supportedTokens");
+      const promises = DESTINATION_CHAIN_IDS.map(async (chainId) => {
+        try {
+          const tokens = await getSupportedTokensForChain(chainId);
+          return { chainId, tokens };
+        } catch (error) {
+          console.warn(`[SwapPanel] Failed to preload tokens for chain ${chainId}:`, error);
+          return { chainId, tokens: TOKENS_BY_CHAIN[chainId] ?? [] };
+        }
+      });
+      const results = await Promise.allSettled(promises);
+      const tokensMap: Record<number, typeof destinationTokensFetched> = {};
+      results.forEach((result) => {
+        if (result.status === "fulfilled") {
+          tokensMap[result.value.chainId] = result.value.tokens;
+        }
+      });
+      setPreloadedTokens((prev) => ({ ...prev, ...tokensMap }));
+    };
+    fetchAllTokens();
+  }, []);
+
   const originFallback = TOKENS_BY_CHAIN[ORIGIN_CHAIN_ID] ?? [];
   const destinationFallback = TOKENS_BY_CHAIN[destinationChainId] ?? [];
 
@@ -546,13 +637,20 @@ export function SwapPanel() {
       originTokensFetched.length > 0 ? originTokensFetched : originFallback,
     [originTokensFetched, originFallback]
   );
-  const destinationTokens = useMemo(
-    () =>
-      destinationTokensFetched.length > 0
-        ? destinationTokensFetched
-        : destinationFallback,
-    [destinationTokensFetched, destinationFallback]
-  );
+  
+  // Use preloaded tokens if available, otherwise fallback to fetched or config tokens
+  const destinationTokens = useMemo(() => {
+    // Prefer fetched tokens for current chain
+    if (destinationTokensFetched.length > 0) {
+      return destinationTokensFetched;
+    }
+    // Use preloaded tokens if available
+    if (preloadedTokens[destinationChainId]?.length > 0) {
+      return preloadedTokens[destinationChainId];
+    }
+    // Fallback to config tokens
+    return destinationFallback;
+  }, [destinationTokensFetched, destinationChainId, destinationFallback, preloadedTokens]);
 
   const canonicalAddress = (addr: string) =>
     addr.startsWith("0x") ? addr.toLowerCase() : addr;
@@ -998,6 +1096,9 @@ export function SwapPanel() {
     rawAmount !== "0" &&
     (userSourceTokenBalance === undefined || !hasSufficientSourceToken);
 
+  const activeQuote = selectedQuote ?? best;
+  const receiveDisplay = activeQuote ? computeReceiveDisplay(activeQuote) : null;
+
   const handleExecute = useCallback(async () => {
     const currentSelectedQuote = useSwapStore.getState().selectedQuote;
     const currentSwapParams = useSwapStore.getState().params;
@@ -1172,7 +1273,7 @@ export function SwapPanel() {
           <div {...stylex.props(styles.inputRow)}>
             <div {...stylex.props(styles.inputGroup)}>
               <TokenSelect
-                label="Asset"
+                label="You pay"
                 options={originTokenOptions}
                 value={originToken}
                 onChange={setOriginToken}
@@ -1202,23 +1303,34 @@ export function SwapPanel() {
 
         {/* To */}
         <div {...stylex.props(styles.toSection)}>
-          <div {...stylex.props(styles.toInputRow)}>
-          <div {...stylex.props(styles.inputGroupWide)}>
-            <SelectDropdown
-              label="Chain"
-              options={destinationChainOptions}
-              value={String(destinationChainId)}
-              onChange={(v) => setDestinationChainId(Number(v))}
-              placeholder="Select chain"
-            />
+          <div {...stylex.props(styles.toHeader)}>
+            <span {...stylex.props(styles.toLabel)}>You receive</span>
           </div>
-            <div {...stylex.props(styles.inputGroup)}>
-              <TokenSelect
-                label="Token"
-                options={destinationTokenOptions}
-                value={destinationToken}
-                onChange={setDestinationToken}
-                placeholder="Select token"
+          <div {...stylex.props(styles.toAmountRow)}>
+            <div>
+              <div
+                {...stylex.props(
+                  receiveDisplay && !isTimedOut && !isError
+                    ? styles.receiveAmount
+                    : styles.receiveAmountPlaceholder
+                )}
+              >
+                {receiveDisplay?.estimatedOutFormatted ?? "0.0"}
+              </div>
+              <div {...stylex.props(styles.receiveCaption)}>
+                {receiveDisplay
+                  ? `Min received: ${receiveDisplay.effectiveReceiveFormatted} ${receiveDisplay.symbol}${isTimedOut ? " (stale – fetch a new quote)" : ""}`
+                  : "Min received: —"}
+              </div>
+            </div>
+            <div {...stylex.props(styles.destinationSelectorContainer)}>
+              <DestinationSelector
+                destinationChainId={destinationChainId}
+                destinationToken={destinationToken}
+                destinationChainOptions={destinationChainOptions}
+                destinationTokenOptions={destinationTokenOptions}
+                onChangeChain={setDestinationChainId}
+                onChangeToken={setDestinationToken}
               />
             </div>
           </div>
@@ -1240,86 +1352,39 @@ export function SwapPanel() {
         {/* Best quote in same interface (MetaMask-style) */}
         {params != null && (
           <div {...stylex.props(styles.quoteSection)}>
-            {isLoading && (
-              <p {...stylex.props(styles.loadingText)}>Loading best quote…</p>
-            )}
-          {isError && (
-            <div {...stylex.props(styles.errorSection)}>
-              <p {...stylex.props(
-                error && (error as Error & { code?: string }).code === "NEED_SOL_FOR_GAS" 
-                  ? styles.errorMessage 
-                  : styles.errorMessageNoMargin
-              )}>
-                {error?.message ?? "Failed to load quotes"}
-              </p>
-              {error && (error as Error & { code?: string }).code === "NEED_SOL_FOR_GAS" && (
-                <p {...stylex.props(styles.errorHint)}>
-                  Get SOL from an exchange or a faucet, send it to your connected wallet, then try again.
-                </p>
-              )}
-            </div>
-          )}
-          {data && !isLoading && quotes.length === 0 && (
-            <p {...stylex.props(styles.noRoutesText)}>
-              No routes available for this pair. Try a different amount or token.
-            </p>
-          )}
-          {data && best && !isLoading && (
-            <>
-              {isTimedOut && (
-                <p {...stylex.props(styles.timeoutMessage)}>
-                  Your quote timed out.{" "}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setSelectedQuote(null);
-                      const newTimestamp = Date.now();
-                      setParamsLastChangedAt(newTimestamp); // Reset timeout timer to re-enable auto-refetching
-                      // Manually trigger refetch
-                      await refetch();
-                    }}
-                    disabled={isFetching}
-                    {...stylex.props(
-                      buttons.textLink,
-                      isFetching && buttons.textLinkDisabled
-                    )}
-                    style={{ 
-                      background: 'transparent',
-                      border: 'none',
-                      outline: 'none',
-                      boxShadow: 'none',
-                    }}
-                  >
-                    Fetch a new one?
-                  </button>
-                </p>
-              )}
+            {/* Always render fee breakdown - show placeholders when loading/no quote */}
+            <div {...stylex.props(styles.quoteDetails)}>
               {(() => {
                 const q = selectedQuote ?? best;
-                if (!q) return null;
+                if (!q) {
+                  // Show placeholder values when no quote
+                  return (
+                    <div {...stylex.props(styles.itemizedSection)}>
+                      <div {...stylex.props(styles.itemizedRow)}>
+                        <span {...stylex.props(styles.itemizedLabel)}>Network fee</span>
+                        <span {...stylex.props(styles.itemizedValue)}>—</span>
+                      </div>
+                      <div {...stylex.props(styles.itemizedRow)}>
+                        <span {...stylex.props(styles.itemizedLabel)}>Relayer fee</span>
+                        <span {...stylex.props(styles.itemizedValue)}>—</span>
+                      </div>
+                      <div {...stylex.props(styles.itemizedRow)}>
+                        <span {...stylex.props(styles.itemizedLabel)}>Gas sponsored</span>
+                        <span {...stylex.props(styles.itemizedValue)}>—</span>
+                      </div>
+                    </div>
+                  );
+                }
 
-                const effectiveReceive = effectiveReceiveRaw(q);
-                const expectedOutNum = BigInt(q.expectedOut);
-                const expectedOutFormattedNum = parseFloat(q.expectedOutFormatted);
-                const useRatio =
-                  expectedOutNum > BigInt(0) &&
-                  Number.isFinite(expectedOutFormattedNum) &&
-                  expectedOutFormattedNum >= 0;
-                const effectiveReceiveFormatted = useRatio
-                  ? (() => {
-                      const ratio = Number(effectiveReceive) / Number(expectedOutNum);
-                      const value = ratio * expectedOutFormattedNum;
-                      if (!Number.isFinite(value) || value < 0) return "0";
-                      // Format with max 3 decimal places, removing trailing zeros
-                      if (value >= 1e9) {
-                        return String(Math.round(value));
-                      }
-                      const formatted = value.toFixed(3);
-                      return formatted.replace(/\.?0+$/, "");
-                    })()
-                  : formatRawAmount(String(effectiveReceive), q.feeCurrency);
+                const { effectiveReceive, effectiveReceiveFormatted } = computeReceiveDisplay(q);
 
                 if (process.env.NODE_ENV === "development") {
+                  const expectedOutNum = BigInt(q.expectedOut);
+                  const expectedOutFormattedNum = parseFloat(q.expectedOutFormatted);
+                  const useRatio =
+                    expectedOutNum > BigInt(0) &&
+                    Number.isFinite(expectedOutFormattedNum) &&
+                    expectedOutFormattedNum >= 0;
                   console.log("[SwapPanel] quote display:", {
                     provider: q.provider,
                     expectedOut: q.expectedOut,
@@ -1350,7 +1415,7 @@ export function SwapPanel() {
                     : "0";
 
                 return (
-                  <div {...stylex.props(styles.quoteDetails)}>
+                  <>
                     <div {...stylex.props(styles.itemizedSection)}>
                       <div {...stylex.props(styles.itemizedRow)}>
                         <span {...stylex.props(styles.itemizedLabel)}>Network fee</span>
@@ -1370,10 +1435,6 @@ export function SwapPanel() {
                           <span {...stylex.props(styles.itemizedValue)}>{(q.priceDrift * 100).toFixed(1)}%</span>
                         </div>
                       )}
-                      <div {...stylex.props(styles.itemizedMarginTop)}>
-                        <span {...stylex.props(styles.itemizedLabel)}>Minimum received</span>
-                        <span {...stylex.props(styles.itemizedValueBold)}>{effectiveReceiveFormatted} {q.feeCurrency}</span>
-                      </div>
                     </div>
                     {quotes.length > 1 && (
                       <p {...stylex.props(styles.otherOptions)}>
@@ -1385,54 +1446,119 @@ export function SwapPanel() {
                               key={oq.provider}
                               type="button"
                               onClick={() => setSelectedQuote(oq)}
-                              {...stylex.props(buttons.small, styles.otherOptionButton)}
+                              {...stylex.props(buttons.textLink)}
+                              style={{ 
+                                background: 'transparent',
+                                border: 'none',
+                                outline: 'none',
+                                boxShadow: 'none',
+                                fontSize: 'inherit',
+                                padding: 0,
+                                marginLeft: '0.25rem',
+                              }}
                             >
                               {oq.gasless ? "Gasless" : "Requires gas"}
                             </button>
                           ))}
                       </p>
                     )}
-                  </div>
+                    {isTimedOut && (
+                      <p {...stylex.props(styles.timeoutMessage)}>
+                        Your quote timed out.{" "}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setSelectedQuote(null);
+                            const newTimestamp = Date.now();
+                            setParamsLastChangedAt(newTimestamp);
+                            await refetch();
+                          }}
+                          disabled={isFetching}
+                          {...stylex.props(
+                            buttons.textLink,
+                            isFetching && buttons.textLinkDisabled
+                          )}
+                          style={{ 
+                            background: 'transparent',
+                            border: 'none',
+                            outline: 'none',
+                            boxShadow: 'none',
+                          }}
+                        >
+                          Fetch a new one?
+                        </button>
+                      </p>
+                    )}
+                  </>
                 );
               })()}
-              <div {...stylex.props(styles.actionRow)}>
-                {insufficientSourceToken ? (
-                  <button
-                    type="button"
-                    disabled
-                    {...stylex.props(styles.insufficientFundsButton)}
-                  >
-                    Insufficient funds
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleExecute}
-                    disabled={!canExecute}
-                    {...stylex.props(
-                      styles.confirmButton,
-                      !canExecute && styles.confirmButtonDisabled
-                    )}
-                  >
-                    {executing ? "Confirming…" : "Confirm"}
-                  </button>
+            </div>
+
+            {/* Loading/error states appear between fees and action button */}
+            {isLoading && (
+              <p {...stylex.props(styles.loadingText)}>Loading best quote…</p>
+            )}
+            {isError && (
+              <div {...stylex.props(styles.errorSection)}>
+                <p {...stylex.props(
+                  error && (error as Error & { code?: string }).code === "NEED_SOL_FOR_GAS" 
+                    ? styles.errorMessage 
+                    : styles.errorMessageNoMargin
+                )}>
+                  {error?.message ?? "Failed to load quotes"}
+                </p>
+                {error && (error as Error & { code?: string }).code === "NEED_SOL_FOR_GAS" && (
+                  <p {...stylex.props(styles.errorHint)}>
+                    Get SOL from an exchange or a faucet, send it to your connected wallet, then try again.
+                  </p>
                 )}
               </div>
-              {executeSuccess && (
-                <p {...stylex.props(styles.successMessage)}>
-                  {executeSuccess}
-                </p>
+            )}
+            {data && !isLoading && quotes.length === 0 && (
+              <p {...stylex.props(styles.noRoutesText)}>
+                No routes available for this pair. Try a different amount or token.
+              </p>
+            )}
+            {params != null && !data && !isLoading && !isError && (
+              <p {...stylex.props(styles.gettingQuoteText)}>Getting your quote…</p>
+            )}
+
+            {/* Always render action button - disabled when loading/no quote */}
+            <div {...stylex.props(styles.actionRow)}>
+              {insufficientSourceToken ? (
+                <button
+                  type="button"
+                  disabled
+                  {...stylex.props(styles.insufficientFundsButton)}
+                >
+                  Insufficient funds
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleExecute}
+                  disabled={!canExecute || isLoading || !best}
+                  {...stylex.props(
+                    styles.confirmButton,
+                    (!canExecute || isLoading || !best) && styles.confirmButtonDisabled
+                  )}
+                >
+                  {executing ? "Confirming…" : "Confirm"}
+                </button>
               )}
-              {executeError && (
-                <p {...stylex.props(styles.executeErrorMessage)}>
-                  {executeError}
-                </p>
-              )}
-            </>
-          )}
-          {params != null && !data && !isLoading && !isError && (
-            <p {...stylex.props(styles.gettingQuoteText)}>Getting your quote…</p>
-          )}
+            </div>
+
+            {/* Execution success/error messages */}
+            {executeSuccess && (
+              <p {...stylex.props(styles.successMessage)}>
+                {executeSuccess}
+              </p>
+            )}
+            {executeError && (
+              <p {...stylex.props(styles.executeErrorMessage)}>
+                {executeError}
+              </p>
+            )}
           </div>
         )}
       </section>
