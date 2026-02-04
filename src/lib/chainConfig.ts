@@ -36,10 +36,8 @@ export const CHAIN_IDS = [
   CHAIN_ID_SOLANA,
 ] as const;
 
-/** Chain IDs valid for destination when origin is always Solana */
-export const DESTINATION_CHAIN_IDS = CHAIN_IDS.filter(
-  (id) => id !== CHAIN_ID_SOLANA
-);
+/** Chain IDs available as destination (all chains; user can swap to any chain including Solana). */
+export const DESTINATION_CHAIN_IDS = [...CHAIN_IDS];
 
 export type ChainId = (typeof CHAIN_IDS)[number];
 
@@ -81,6 +79,18 @@ export const TOKENS_BY_CHAIN: Record<number, ChainToken[]> = {
   [CHAIN_ID_ARBITRUM]: [
     { address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", symbol: "USDC", decimals: 6 },
   ],
+  [CHAIN_ID_BNB]: [
+    { address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", symbol: "USDC", decimals: 18 },
+    { address: "0x0000000000000000000000000000000000000000", symbol: "BNB", decimals: 18 },
+  ],
+  [CHAIN_ID_POLYGON]: [
+    { address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", symbol: "USDC", decimals: 6 },
+    { address: "0x0000000000000000000000000000000000001010", symbol: "MATIC", decimals: 18 },
+  ],
+  [CHAIN_ID_AVALANCHE]: [
+    { address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", symbol: "USDC", decimals: 6 },
+    { address: "0x0000000000000000000000000000000000000000", symbol: "AVAX", decimals: 18 },
+  ],
 };
 
 /** Chain IDs that use EVM (0x) addresses for recipient/authority */
@@ -111,30 +121,8 @@ export function humanAmountToRaw(humanAmount: string, decimals: number): string 
   return String(raw);
 }
 
-/** Decimals by symbol for formatting fee/amount display */
-const DECIMALS_BY_SYMBOL: Record<string, number> = {
-  USDC: 6,
-  USDT: 6,
-  ETH: 18,
-  WETH: 18,
-  SOL: 9,
-};
-
-/** Format raw token amount for display (e.g. "26208" + "USDC" -> "0.026") */
-export function formatRawAmount(raw: string, currencySymbol: string): string {
-  const decimals = DECIMALS_BY_SYMBOL[currencySymbol] ?? 6;
-  try {
-    const n = BigInt(raw);
-    if (n === 0n) return "0";
-    const div = 10 ** decimals;
-    const intPart = n / BigInt(div);
-    const fracPart = n % BigInt(div);
-    const fracStr = fracPart.toString().padStart(decimals, "0").replace(/0+$/, "");
-    return fracStr ? `${intPart}.${fracStr}` : String(intPart);
-  } catch {
-    return raw;
-  }
-}
+// Re-export formatting utilities for backward compatibility
+export { formatRawAmount, formatRawAmountWithDecimals } from "./utils/formatting";
 
 export function getChainName(chainId: number): string {
   const names: Record<number, string> = {
